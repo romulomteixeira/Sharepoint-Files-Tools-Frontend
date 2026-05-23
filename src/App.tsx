@@ -1,33 +1,76 @@
 /**
- * App.tsx — Roteamento principal da aplicação (Sprint 10)
+ * App.tsx — Roteamento principal da aplicação (Sprint 11)
  *
  * Rotas:
- *   /                      → DashboardPage
- *   /scans                 → ScansPage
- *   /jobs/:jobId           → JobStatusPage (SSE de progresso)
- *   /inventory/:scanId     → InventoryPage
- *   *                      → NotFoundPage
+ *   /login                 → LoginPage       (pública)
+ *   /                      → DashboardPage   (protegida)
+ *   /scans                 → ScansPage       (protegida)
+ *   /jobs/:jobId           → JobStatusPage   (protegida, SSE de progresso)
+ *   /inventory/:scanId     → InventoryPage   (protegida)
+ *   *                      → NotFoundPage    (protegida)
  */
 
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
-import DashboardPage  from './pages/DashboardPage';
-import ScansPage      from './pages/ScansPage';
-import JobStatusPage  from './pages/JobStatusPage';
-import InventoryPage  from './pages/InventoryPage';
-import NotFoundPage   from './pages/NotFoundPage';
+import { Navigate, Routes, Route } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Layout        from './components/Layout';
+import LoginPage     from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import ScansPage     from './pages/ScansPage';
+import JobStatusPage from './pages/JobStatusPage';
+import InventoryPage from './pages/InventoryPage';
+import NotFoundPage  from './pages/NotFoundPage';
+
+// ─── Guard de rota protegida ──────────────────────────────────────────────────
+
+function ProtectedRoute({ children }: { children: React.ReactNode }): React.ReactElement {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={loadingStyles.wrap}>
+        <p style={loadingStyles.text}>Verificando sessão…</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+const loadingStyles: Record<string, React.CSSProperties> = {
+  wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  text: { color: '#5f6c83', fontSize: 15 },
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App(): React.ReactElement {
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="scans" element={<ScansPage />} />
-        <Route path="jobs/:jobId" element={<JobStatusPage />} />
-        <Route path="inventory/:scanId" element={<InventoryPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+    <AuthProvider>
+      <Routes>
+        {/* Rota pública — tela de login */}
+        <Route path="/login" element={<LoginPage />} />
+
+        {/* Rotas protegidas — requerem sessão ativa */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="scans" element={<ScansPage />} />
+          <Route path="jobs/:jobId" element={<JobStatusPage />} />
+          <Route path="inventory/:scanId" element={<InventoryPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
