@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react-oxc';
 import { resolve } from 'path';
 
 // https://vitejs.dev/config/
@@ -36,9 +36,15 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // Chunking para melhor cache de assets
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+        // Vite 8 (Rolldown) exige manualChunks como função, não objeto
+        manualChunks(id) {
+          if (
+            id.includes('react') ||
+            id.includes('react-dom') ||
+            id.includes('react-router-dom')
+          ) {
+            return 'vendor';
+          }
         },
       },
     },
