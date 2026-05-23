@@ -49,6 +49,11 @@ async function parseResponse<T>(res: Response): Promise<T> {
   const contentType = res.headers.get('content-type') ?? '';
 
   if (!res.ok) {
+    // Sinaliza sessão expirada — AuthContext escuta e redireciona para /login
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+
     let errorBody: ApiResponse | null = null;
     try {
       if (contentType.includes('application/json')) {

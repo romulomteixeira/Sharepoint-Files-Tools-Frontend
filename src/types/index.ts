@@ -170,3 +170,15 @@ export interface HealthDetail {
   process?: { uptimeSeconds: number; heapUsedBytes: number; rssBytes: number };
   flags?: Record<string, boolean>;
 }
+
+// ─── Autenticação / Branding ──────────────────────────────────────────────────
+
+export interface BrandingResponse {
+  loginTitle?: string;
+  loginSubtitle?: string;
+  /** true = admin ainda não existe (primeiro acesso); false = admin existe */
+  showFirstAdminLink?: boolean;
+  logoDataUrl?: string;
+  oauthEnabled?: boolean;
+  oauthButtonLabel?: string;
+}
