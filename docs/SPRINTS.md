@@ -183,32 +183,31 @@ startExport(format)
 
 ---
 
-## 📋 Sprint 15 — Monitor Oneração + Versionados por Período
+## ✅ Sprint 15 — Monitor Oneração + Versionados por Período
 
+**Commit:** `56eefe7`
 **Objetivo:** Análise temporal de crescimento e uso de versionamento.
 
-### Rota planejada
+### Entregáveis
 - `src/pages/OnerationMonitorPage.tsx` → `/oneration-monitor`
 - `src/pages/VersionedByPeriodPage.tsx` → `/versioned-by-period`
+- `src/types/index.ts` — novos tipos: `GrowthPoint`, `VersionPeriodBucket`, `VersionedPeriodData`, `VersionPeriodUnit`
+- `src/api/inventory.api.ts` — nova função: `getVersionedByPeriod()`
+- Sidebar: Monitor Oneração e Versionados por Período habilitados
 
-### Funcionalidades a implementar
+### OnerationMonitorPage
+- Filtro de período: 7d / 30d / 90d / todos
+- Charts SVG de área+linha: evolução de bytes e arquivos por scan
+- KPIs: volume atual, arquivos atuais, Δ volume e Δ arquivos no período
+- Tabela de comparação com deltas e barras proporcionais coloridas
+- **Fonte:** `listScans()` — sem endpoint adicional necessário
 
-#### OnerationMonitorPage (`/oneration-monitor`)
-- Seletor de período: 7d / 30d / 90d / customizado
-- Gráfico de evolução de bytes por dia (linha)
-- Gráfico de novos arquivos por dia (barras)
-- Top sites com maior crescimento no período
-- Endpoint a confirmar: `GET /api/inventory/:scanId/growth?period=30d`
-
-#### VersionedByPeriodPage (`/versioned-by-period`)
-- Seletor de scan + período (dia, semana, mês)
-- Tabela de arquivos versionados no período com contagem de versões
-- Bytes totais de versões por período (chart de barras)
-- Endpoint a confirmar: `GET /api/inventory/:scanId/versioned-by-period?unit=week`
-
-### Sidebar
-- Habilitar "Monitor Oneração" → `/oneration-monitor`
-- Habilitar "Versionados por Período" → `/versioned-by-period`
+### VersionedByPeriodPage
+- Seletor de scan + agrupamento: dia / semana / mês
+- Tenta `GET /api/inventory/:scanId/versioned-by-period` — se 404, ativa fallback
+- **Fallback automático:** agrega `getInventorySummary()` de todos os scans, agrupa por período
+- KPIs: total versões, bytes de versões, períodos com dados
+- Chart de barras horizontais por período + tabela detalhada
 
 ---
 
@@ -335,8 +334,8 @@ GET  /api/jobs/:jobId/status       → progresso do job
 | `/jobs/:jobId` | — (via Scans) | ✅ Funcional |
 | `/reports` | Relatórios | 📋 Sprint 14 |
 | `/top-files` | Top Arquivos | 📋 Sprint 14 |
-| `/oneration-monitor` | Monitor Oneração | 📋 Sprint 15 |
-| `/versioned-by-period` | Versionados por Período | 📋 Sprint 15 |
+| `/oneration-monitor` | Monitor Oneração | ✅ Funcional |
+| `/versioned-by-period` | Versionados por Período | ✅ Funcional |
 | `/expurgo` | Simulação de Expurgo | 📋 Sprint 16 |
 | `/logs` | Logs | 📋 Sprint 17 |
 | `/audit` | Auditoria | 📋 Sprint 17 |
