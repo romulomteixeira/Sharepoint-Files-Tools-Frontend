@@ -28,6 +28,25 @@ import {
 } from '../api/auth.api';
 import type { BrandingResponse } from '../types';
 
+// ─── Helper: converte link do backend (porta 8787) para URL do frontend ───────
+
+/**
+ * O backend gera links de primeiro acesso apontando para si mesmo (ex.: :8787).
+ * No ambiente de desenvolvimento o React roda em :3000.
+ * Esta função reaproveira apenas o path + query do link original
+ * e constrói a URL usando o origin atual do frontend.
+ */
+function toFrontendUrl(devLink: string | undefined): string {
+  if (!devLink) return 'ver logs';
+  try {
+    // devLink pode ser absoluto (http://localhost:8787/login?...) ou relativo (/login?...)
+    const url = new URL(devLink, window.location.origin);
+    return `${window.location.origin}${url.pathname}${url.search}`;
+  } catch {
+    return devLink.startsWith('/') ? `${window.location.origin}${devLink}` : devLink;
+  }
+}
+
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 type FormMode = 'login' | 'firstAccess' | 'confirm';
@@ -169,7 +188,7 @@ export default function LoginPage(): React.ReactElement {
         const msg =
           result.delivery === 'smtp'
             ? 'O e-mail com link de redefinição foi enviado.\n\nAbra sua caixa de entrada e clique no link para definir a senha forte do admin.'
-            : `SMTP não configurado.\n\nUse docker logs <id-container> e procure por [FIRST_ADMIN] para copiar o link de redefinição.\n\nLink (dev): ${result.devLink || 'ver logs'}`;
+            : `SMTP não configurado.\n\nUse docker logs <id-container> e procure por [FIRST_ADMIN] para copiar o link de redefinição.\n\nLink (dev): ${toFrontendUrl(result.devLink)}`;
         setFirstAccessModalText(msg);
         setFirstAccessModalOpen(true);
       }
