@@ -53,8 +53,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     section: 'Governança e suporte',
     items: [
-      { icon: 'LG', title: 'Logs',          sub: 'Jobs, erros e auditoria',              disabled: true },
-      { icon: 'AU', title: 'Auditoria',     sub: 'Trilha de ações e rastreabilidade',   disabled: true },
+      { icon: 'LG', title: 'Logs',          sub: 'Jobs, erros e auditoria',              to: '/logs' },
+      { icon: 'AU', title: 'Auditoria',     sub: 'Trilha de ações e rastreabilidade',   to: '/audit' },
       { icon: 'CF', title: 'Configurações', sub: 'Token, limites e motor',              disabled: true },
       { icon: 'US', title: 'Administração', sub: 'Usuários e controle de acesso',       disabled: true },
     ],

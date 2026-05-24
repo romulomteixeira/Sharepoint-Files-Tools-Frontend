@@ -13,6 +13,8 @@
  *   /oneration-monitor     → OnerationMonitorPage     (evolução de consumo)
  *   /versioned-by-period   → VersionedByPeriodPage    (versões por período)
  *   /expurgo               → ExpurgoPage              (simulação de expurgo com confirmação dupla)
+ *   /logs                  → LogsPage                 (eventos e logs do sistema)
+ *   /audit                 → AuditPage                (trilha de auditoria administrativa)
  *   *                      → NotFoundPage             (protegida)
  */
 
@@ -30,6 +32,8 @@ import TopFilesPage            from './pages/TopFilesPage';
 import OnerationMonitorPage    from './pages/OnerationMonitorPage';
 import VersionedByPeriodPage   from './pages/VersionedByPeriodPage';
 import ExpurgoPage             from './pages/ExpurgoPage';
+import LogsPage                from './pages/LogsPage';
+import AuditPage               from './pages/AuditPage';
 import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
@@ -85,6 +89,8 @@ export default function App(): React.ReactElement {
           <Route path="oneration-monitor"   element={<OnerationMonitorPage />} />
           <Route path="versioned-by-period" element={<VersionedByPeriodPage />} />
           <Route path="expurgo"            element={<ExpurgoPage />} />
+          <Route path="logs"               element={<LogsPage />} />
+          <Route path="audit"              element={<AuditPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
