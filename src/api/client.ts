@@ -54,34 +54,49 @@ async function parseResponse<T>(res: Response): Promise<T> {
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
 
-    let errorBody: ApiResponse | null = null;
+    let errorBody: unknown = null;
     try {
       if (contentType.includes('application/json')) {
-        errorBody = (await res.json()) as ApiResponse;
+        errorBody = await res.json();
       }
     } catch {
       // ignore parse error
     }
-    const apiErr = errorBody?.error;
-    throw new ApiClientError(
-      apiErr?.code ?? 'HTTP_ERROR',
-      apiErr?.message ?? `HTTP ${res.status} ${res.statusText}`,
-      res.status,
-      apiErr?.details,
-    );
+    // Backend usa { error: 'string' } OU { error: { code, message } }
+    const eb = errorBody as Record<string, unknown> | null;
+    const errField = eb?.error;
+    const errMsg = typeof errField === 'string'
+      ? errField
+      : (errField as Record<string, unknown> | undefined)?.message as string | undefined
+        ?? `HTTP ${res.status} ${res.statusText}`;
+    const errCode = (errField as Record<string, unknown> | undefined)?.code as string | undefined
+      ?? 'HTTP_ERROR';
+    throw new ApiClientError(errCode, errMsg, res.status);
   }
 
   if (contentType.includes('application/json')) {
-    const envelope = (await res.json()) as ApiResponse<T>;
-    if (envelope.success === false) {
-      throw new ApiClientError(
-        envelope.error?.code ?? 'API_ERROR',
-        envelope.error?.message ?? 'Erro desconhecido da API',
-        res.status,
-        envelope.error?.details,
-      );
+    const json = await res.json() as unknown;
+    // Detecta envelope padrão {success: boolean, data, error} — só usa se 'success' for boolean.
+    // O backend NÃO usa envelope, retorna JSON plano, por isso esta verificação é necessária.
+    if (
+      json !== null &&
+      typeof json === 'object' &&
+      !Array.isArray(json) &&
+      typeof (json as Record<string, unknown>).success === 'boolean'
+    ) {
+      const envelope = json as ApiResponse<T>;
+      if (envelope.success === false) {
+        throw new ApiClientError(
+          envelope.error?.code ?? 'API_ERROR',
+          envelope.error?.message ?? 'Erro desconhecido da API',
+          res.status,
+          envelope.error?.details,
+        );
+      }
+      return envelope.data as T;
     }
-    return envelope.data as T;
+    // JSON plano (sem envelope) — retorna directamente
+    return json as T;
   }
 
   // Resposta não-JSON (ex: download de arquivo) — retorna texto

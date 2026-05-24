@@ -13,6 +13,7 @@ import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { logout as apiLogout } from '../api/auth.api';
+import ErrorBoundary from './ErrorBoundary';
 
 // ─── Estrutura de navegação (igual ao legado) ─────────────────────────────────
 
@@ -162,7 +163,9 @@ export default function Layout(): React.ReactElement {
 
       {/* ── Conteúdo principal ───────────────────────────────────────────── */}
       <main style={styles.main}>
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
     </div>
