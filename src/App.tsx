@@ -17,6 +17,7 @@
  *   /audit                 → AuditPage                (trilha de auditoria administrativa)
  *   /settings              → SettingsPage             (configurações do sistema)
  *   /admin                 → AdminPage                (gerenciamento de usuários)
+ *   /licenses              → LicensesPage             (licenças e espaço do tenant)
  *   *                      → NotFoundPage             (protegida)
  */
 
@@ -38,6 +39,7 @@ import LogsPage                from './pages/LogsPage';
 import AuditPage               from './pages/AuditPage';
 import SettingsPage            from './pages/SettingsPage';
 import AdminPage               from './pages/AdminPage';
+import LicensesPage            from './pages/LicensesPage';
 import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
@@ -97,6 +99,7 @@ export default function App(): React.ReactElement {
           <Route path="audit"              element={<AuditPage />} />
           <Route path="settings"           element={<SettingsPage />} />
           <Route path="admin"              element={<AdminPage />} />
+          <Route path="licenses"          element={<LicensesPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

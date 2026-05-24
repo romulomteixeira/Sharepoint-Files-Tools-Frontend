@@ -36,7 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { icon: 'DB', title: 'Dashboard',        sub: 'KPIs, tendência e consumo',          to: '/' },
       { icon: 'RL', title: 'Relatórios',        sub: 'Exportações e Top 500',              to: '/reports' },
-      { icon: 'LC', title: 'Licenças & Espaço', sub: 'Origem da capacidade SharePoint',    disabled: true },
+      { icon: 'LC', title: 'Licenças & Espaço', sub: 'Origem da capacidade SharePoint',    to: '/licenses' },
     ],
   },
   {
