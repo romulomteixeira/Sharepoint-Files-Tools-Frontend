@@ -43,15 +43,36 @@ export interface Scan {
   lastError?: string;
 }
 
+/**
+ * Progresso em tempo real de um scan ativo.
+ * Os campos refletem o formato real retornado pelo backend (igual ao legacy app.js).
+ */
+export interface ScanProgress {
+  /** Status em maiúsculas: RUNNING | DONE | ERROR | CANCELLED | QUEUED */
+  status?: string;
+  /** Estágio: LISTING_SITES | SCANNING_FILES | SCANNING_AND_VERSIONING | FINALIZING | … */
+  stage?: string;
+  totalSites?: number;
+  doneSites?: number;
+  forbiddenSites?: number;
+  errorSites?: number;
+  totalDrives?: number;
+  doneDrives?: number;
+  files?: number;
+  bytes?: number;
+  activity?: string;
+  error?: string;
+  versioningEnabled?: boolean;
+  versionsTotal?: number;
+  versionsDone?: number;
+  versionsFail?: number;
+  versionsBytes?: number;
+}
+
 export interface ScanStatusDetail {
   scanId: string;
   status: ScanStatus;
-  progress?: {
-    sitesTotal: number;
-    sitesScanned: number;
-    drivesScanned: number;
-    filesIngested: number;
-  };
+  progress?: ScanProgress;
   startedAt?: string;
   finishedAt?: string;
   lastError?: string;
