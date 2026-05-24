@@ -12,6 +12,7 @@
  *   /top-files             → TopFilesPage             (top N maiores arquivos)
  *   /oneration-monitor     → OnerationMonitorPage     (evolução de consumo)
  *   /versioned-by-period   → VersionedByPeriodPage    (versões por período)
+ *   /expurgo               → ExpurgoPage              (simulação de expurgo com confirmação dupla)
  *   *                      → NotFoundPage             (protegida)
  */
 
@@ -28,6 +29,7 @@ import ReportsPage             from './pages/ReportsPage';
 import TopFilesPage            from './pages/TopFilesPage';
 import OnerationMonitorPage    from './pages/OnerationMonitorPage';
 import VersionedByPeriodPage   from './pages/VersionedByPeriodPage';
+import ExpurgoPage             from './pages/ExpurgoPage';
 import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
@@ -82,6 +84,7 @@ export default function App(): React.ReactElement {
           <Route path="top-files"           element={<TopFilesPage />} />
           <Route path="oneration-monitor"   element={<OnerationMonitorPage />} />
           <Route path="versioned-by-period" element={<VersionedByPeriodPage />} />
+          <Route path="expurgo"            element={<ExpurgoPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

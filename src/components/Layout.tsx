@@ -47,7 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: 'TP', title: 'Top Arquivos',            sub: 'Maiores e mais versionados',      to: '/top-files' },
       { icon: 'ON', title: 'Monitor Oneração',        sub: 'Crescimento e impacto',           to: '/oneration-monitor' },
       { icon: 'VP', title: 'Versionados por Período', sub: 'Dia, semana e mês',               to: '/versioned-by-period' },
-      { icon: 'EX', title: 'Simulação de Expurgo',    sub: 'Retenção e economia',             disabled: true },
+      { icon: 'EX', title: 'Simulação de Expurgo',    sub: 'Retenção e economia',             to: '/expurgo' },
     ],
   },
   {
