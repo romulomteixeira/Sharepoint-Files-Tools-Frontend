@@ -279,33 +279,38 @@ O backend retorna JSON plano `{ items: [...] }` sem envelope `{ success, data }`
 
 ---
 
-## 📋 Sprint 18 — Configurações + Administração
+## ✅ Sprint 18 — Configurações + Administração
 
-**Objetivo:** Gestão de configurações do sistema e usuários.
+**Commit:** `30b3eba`  
+**Objetivo:** Gestão de configurações do sistema e usuários locais.
 
-### Rota planejada
+### Entregáveis
+- `src/api/settings.api.ts` — `sfetch()` nativo (bypass envelope); `getConfig()`, `saveConfig()`, `getSessionInfo()`, `listAdminUsers()`, `createAdminUser()`, `deleteAdminUser()`, `resetAdminPassword()`
 - `src/pages/SettingsPage.tsx` → `/settings`
 - `src/pages/AdminPage.tsx` → `/admin`
+- `src/App.tsx` — rotas `/settings` e `/admin` habilitadas
+- `src/components/Layout.tsx` — "Configurações" e "Administração" ativos
 
-### Funcionalidades a implementar
+### SettingsPage (`/settings`)
+- Detecção de papel via `GET /api/session/check` → admin vs. leitura
+- 5 seções em accordion (colapso individual):
+  1. **Graph** — tenantId, clientId, clientSecret (redactado), operatorName/Email
+  2. **Motor de Scan** — concurrency (1–20), deltaPageLimit, pricePerTbMonth
+  3. **Versões Automáticas** — versionsAuto (top/all/none), TopN, MaxItems, Concurrency, BatchSize, Force
+  4. **Workers** — useVersionWorker, nVersionWorkers (1–8)
+  5. **Branding** — brandingLoginTitle, brandingLoginSubtitle
+- Admin: modo edição com botão "Editar → Salvar / Cancelar"
+- Não-admin: campos read-only com aviso informativo
 
-#### SettingsPage (`/settings`)
-- Token Microsoft Graph: visualizar status (válido/expirado), renovar
-- Limites de scan: `MAX_CONCURRENT_WORKERS`, `SCAN_PAGE_SIZE`
-- Feature flags visíveis: `USE_PERSISTENT_JOBS`, `USE_ROLLUP_DASHBOARDS`, etc.
-- Configurações de retenção: TTL de exports, purge TTL
-- Endpoints a confirmar: `GET /api/config` + `PUT /api/config`
+### AdminPage (`/admin`)
+- Tabela de usuários: ID, username, displayName, role badge, createdAt, flag "deve trocar senha"
+- Modal **Novo Usuário**: username, displayName, senha (validação strong password), papel
+- Modal **Resetar Senha**: nova senha + e-mail vinculado (para admin protegido)
+- Modal **Confirmar Exclusão**: texto de confirmação + botão destrutivo
+- Acesso restrito exibido para não-admins
 
-#### AdminPage (`/admin`)
-- Lista de usuários cadastrados
-- Criar usuário (nome, e-mail, papel: admin/operador)
-- Resetar senha
-- Desativar/reativar usuário
-- Endpoints a confirmar: `GET /api/users` + `POST /api/users` + `PUT /api/users/:id`
-
-### Sidebar
-- Habilitar "Configurações" → `/settings`
-- Habilitar "Administração" → `/admin`
+### Nota técnica
+`settings.api.ts` usa `fetch` nativo (igual a `auth.api.ts`) porque os endpoints `/api/config` e `/api/admin/*` retornam JSON plano sem o envelope `{ success, data }`. O handler de 401 dispara `auth:unauthorized` para o `AuthContext`.
 
 ---
 
@@ -344,8 +349,8 @@ O backend retorna JSON plano `{ items: [...] }` sem envelope `{ success, data }`
 | `/expurgo` | Simulação de Expurgo | ✅ Funcional |
 | `/logs` | Logs | ✅ Funcional |
 | `/audit` | Auditoria | ✅ Funcional |
-| `/settings` | Configurações | 📋 Sprint 18 |
-| `/admin` | Administração | 📋 Sprint 18 |
+| `/settings` | Configurações | ✅ Funcional |
+| `/admin` | Administração | ✅ Funcional |
 | `/licenses` | Licenças & Espaço | 💡 Sprint 19 |
 
 ---
@@ -360,6 +365,7 @@ src/
 │   ├── inventory.api.ts   ✅ Summary, sites, drives, files, top-files, versioned-by-period
 │   ├── jobs.api.ts        ✅ getJobStatus
 │   ├── logs.api.ts        ✅ getLogs, getAuditLogs, castRaw (Sprint 17)
+│   ├── settings.api.ts    ✅ getConfig, saveConfig, listAdminUsers, CRUD usuarios (Sprint 18)
 │   ├── purge.api.ts       ✅ requestPurgeToken, executePurgeJob, getPurgeJobStatus
 │   ├── reports.api.ts     ✅ exportInventory, getExportJobStatus, getDownloadUrl
 │   └── scans.api.ts       ✅ createScan, listScans, getScanStatus, cancelScan
@@ -372,6 +378,7 @@ src/
 │   └── useJobStream.ts    ✅ SSE via EventSource
 ├── pages/
 │   ├── DashboardPage.tsx          ✅ KPIs, fluxo, top ext, top files, auto-refresh
+│   ├── AdminPage.tsx              ✅ Gestão de usuários, modais CRUD (Sprint 18)
 │   ├── AuditPage.tsx              ✅ Trilha de auditoria, filtros server-side, CSV (Sprint 17)
 │   ├── ExpurgoPage.tsx            ✅ Config→Preview→Execução, modal, polling (Sprint 16)
 │   ├── InventoryPage.tsx          ✅ Filtros, tabela, export, seletor de scans
@@ -382,6 +389,7 @@ src/
 │   ├── OnerationMonitorPage.tsx   ✅ Charts SVG, KPIs, tabela comparação (Sprint 15)
 │   ├── ReportsPage.tsx            ✅ Exportações configuráveis, histórico (Sprint 14)
 │   ├── ScansPage.tsx              ✅ Lista + iniciar scan
+│   ├── SettingsPage.tsx           ✅ Config em accordion, admin/leitura, save (Sprint 18)
 │   ├── TopFilesPage.tsx           ✅ Top N, ordenação, barra de volume (Sprint 14)
 │   └── VersionedByPeriodPage.tsx  ✅ Versões por período, fallback automático (Sprint 15)
 └── types/
