@@ -6,7 +6,8 @@
  *   /                      → DashboardPage   (protegida)
  *   /scans                 → ScansPage       (protegida)
  *   /jobs/:jobId           → JobStatusPage   (protegida, SSE de progresso)
- *   /inventory/:scanId     → InventoryPage   (protegida)
+ *   /inventory             → InventoryPage   (seletor de scans)
+ *   /inventory/:scanId     → InventoryPage   (inventário de um scan)
  *   *                      → NotFoundPage    (protegida)
  */
 
@@ -67,6 +68,7 @@ export default function App(): React.ReactElement {
           <Route index element={<DashboardPage />} />
           <Route path="scans" element={<ScansPage />} />
           <Route path="jobs/:jobId" element={<JobStatusPage />} />
+          <Route path="inventory"          element={<InventoryPage />} />
           <Route path="inventory/:scanId" element={<InventoryPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
