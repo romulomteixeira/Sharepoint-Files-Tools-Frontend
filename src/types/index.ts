@@ -43,15 +43,36 @@ export interface Scan {
   lastError?: string;
 }
 
+/**
+ * Progresso em tempo real de um scan ativo.
+ * Os campos refletem o formato real retornado pelo backend (igual ao legacy app.js).
+ */
+export interface ScanProgress {
+  /** Status em maiúsculas: RUNNING | DONE | ERROR | CANCELLED | QUEUED */
+  status?: string;
+  /** Estágio: LISTING_SITES | SCANNING_FILES | SCANNING_AND_VERSIONING | FINALIZING | … */
+  stage?: string;
+  totalSites?: number;
+  doneSites?: number;
+  forbiddenSites?: number;
+  errorSites?: number;
+  totalDrives?: number;
+  doneDrives?: number;
+  files?: number;
+  bytes?: number;
+  activity?: string;
+  error?: string;
+  versioningEnabled?: boolean;
+  versionsTotal?: number;
+  versionsDone?: number;
+  versionsFail?: number;
+  versionsBytes?: number;
+}
+
 export interface ScanStatusDetail {
   scanId: string;
   status: ScanStatus;
-  progress?: {
-    sitesTotal: number;
-    sitesScanned: number;
-    drivesScanned: number;
-    filesIngested: number;
-  };
+  progress?: ScanProgress;
   startedAt?: string;
   finishedAt?: string;
   lastError?: string;
@@ -158,6 +179,38 @@ export interface ExportJob {
   format: ExportFormat;
   createdAt: string;
   finishedAt?: string;
+}
+
+// ─── Monitor Oneração ─────────────────────────────────────────────────────────
+
+/** Ponto na linha do tempo de crescimento: um scan = um ponto */
+export interface GrowthPoint {
+  scanId:     string;
+  date:       string;   // ISO do scan.createdAt
+  totalFiles: number;
+  totalBytes: number;
+  deltaFiles?: number;  // diferença em relação ao ponto anterior
+  deltaBytes?: number;
+}
+
+// ─── Versionados por Período ──────────────────────────────────────────────────
+
+export type VersionPeriodUnit = 'day' | 'week' | 'month';
+
+/** Bucket de versões agrupado por período */
+export interface VersionPeriodBucket {
+  period:       string;  // "2024-01-15" | "2024-W03" | "2024-01"
+  versionCount: number;
+  versionBytes: number;
+  fileCount:    number;
+}
+
+/** Resposta do endpoint /api/inventory/:scanId/versioned-by-period */
+export interface VersionedPeriodData {
+  unit:              VersionPeriodUnit;
+  buckets:           VersionPeriodBucket[];
+  totalVersions:     number;
+  totalVersionBytes: number;
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────

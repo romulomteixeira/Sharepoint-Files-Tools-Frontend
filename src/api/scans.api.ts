@@ -20,7 +20,12 @@ export async function listScans(): Promise<Scan[]> {
   return get<Scan[]>('/api/scans/list');
 }
 
-/** Retorna o status atual de um scan (polling). */
+/** Retorna o status atual de um scan com progresso detalhado (polling). */
 export async function getScanStatus(scanId: string): Promise<ScanStatusDetail> {
   return get<ScanStatusDetail>(`/api/scans/${scanId}/status`);
+}
+
+/** Cancela um scan em execução. */
+export async function cancelScan(scanId: string): Promise<void> {
+  return post<void>(`/api/scans/${scanId}/cancel`);
 }

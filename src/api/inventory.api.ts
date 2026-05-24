@@ -57,3 +57,11 @@ export async function getTopFiles(
 ): Promise<FileItem[]> {
   return get<FileItem[]>(`/api/inventory/${scanId}/top-files`, params);
 }
+
+/** Versões agrupadas por período (dia / semana / mês). */
+export async function getVersionedByPeriod(
+  scanId: string,
+  params?: { unit?: 'day' | 'week' | 'month' },
+): Promise<import('../types').VersionedPeriodData> {
+  return get(`/api/inventory/${scanId}/versioned-by-period`, params);
+}

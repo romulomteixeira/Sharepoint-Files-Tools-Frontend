@@ -6,8 +6,19 @@
  *   /                      → DashboardPage   (protegida)
  *   /scans                 → ScansPage       (protegida)
  *   /jobs/:jobId           → JobStatusPage   (protegida, SSE de progresso)
- *   /inventory/:scanId     → InventoryPage   (protegida)
- *   *                      → NotFoundPage    (protegida)
+ *   /inventory             → InventoryPage   (seletor de scans)
+ *   /inventory/:scanId     → InventoryPage   (inventário de um scan)
+ *   /reports               → ReportsPage              (exportações configuráveis)
+ *   /top-files             → TopFilesPage             (top N maiores arquivos)
+ *   /oneration-monitor     → OnerationMonitorPage     (evolução de consumo)
+ *   /versioned-by-period   → VersionedByPeriodPage    (versões por período)
+ *   /expurgo               → ExpurgoPage              (simulação de expurgo com confirmação dupla)
+ *   /logs                  → LogsPage                 (eventos e logs do sistema)
+ *   /audit                 → AuditPage                (trilha de auditoria administrativa)
+ *   /settings              → SettingsPage             (configurações do sistema)
+ *   /admin                 → AdminPage                (gerenciamento de usuários)
+ *   /licenses              → LicensesPage             (licenças e espaço do tenant)
+ *   *                      → NotFoundPage             (protegida)
  */
 
 import React from 'react';
@@ -19,7 +30,17 @@ import DashboardPage from './pages/DashboardPage';
 import ScansPage     from './pages/ScansPage';
 import JobStatusPage from './pages/JobStatusPage';
 import InventoryPage from './pages/InventoryPage';
-import NotFoundPage  from './pages/NotFoundPage';
+import ReportsPage             from './pages/ReportsPage';
+import TopFilesPage            from './pages/TopFilesPage';
+import OnerationMonitorPage    from './pages/OnerationMonitorPage';
+import VersionedByPeriodPage   from './pages/VersionedByPeriodPage';
+import ExpurgoPage             from './pages/ExpurgoPage';
+import LogsPage                from './pages/LogsPage';
+import AuditPage               from './pages/AuditPage';
+import SettingsPage            from './pages/SettingsPage';
+import AdminPage               from './pages/AdminPage';
+import LicensesPage            from './pages/LicensesPage';
+import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
 
@@ -67,7 +88,18 @@ export default function App(): React.ReactElement {
           <Route index element={<DashboardPage />} />
           <Route path="scans" element={<ScansPage />} />
           <Route path="jobs/:jobId" element={<JobStatusPage />} />
+          <Route path="inventory"          element={<InventoryPage />} />
           <Route path="inventory/:scanId" element={<InventoryPage />} />
+          <Route path="reports"              element={<ReportsPage />} />
+          <Route path="top-files"           element={<TopFilesPage />} />
+          <Route path="oneration-monitor"   element={<OnerationMonitorPage />} />
+          <Route path="versioned-by-period" element={<VersionedByPeriodPage />} />
+          <Route path="expurgo"            element={<ExpurgoPage />} />
+          <Route path="logs"               element={<LogsPage />} />
+          <Route path="audit"              element={<AuditPage />} />
+          <Route path="settings"           element={<SettingsPage />} />
+          <Route path="admin"              element={<AdminPage />} />
+          <Route path="licenses"          element={<LicensesPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
