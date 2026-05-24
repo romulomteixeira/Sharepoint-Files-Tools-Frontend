@@ -151,35 +151,31 @@ startExport(format)
 
 ---
 
-## 📋 Sprint 14 — Relatórios + Top Arquivos
+## ✅ Sprint 14 — Relatórios + Top Arquivos
 
+**Commits:** `3de8530`, `336cd44`  
 **Objetivo:** Página de exportações configuráveis e visualização dos maiores arquivos do tenant.
 
-### Rota planejada
+### Entregáveis
 - `src/pages/ReportsPage.tsx` → `/reports`
 - `src/pages/TopFilesPage.tsx` → `/top-files`
+- `src/App.tsx` — rotas `/reports` e `/top-files` habilitadas
+- `src/components/Layout.tsx` — "Relatórios" e "Top Arquivos" habilitados na sidebar
 
-### Funcionalidades a implementar
+### ReportsPage (`/reports`)
+- Seletor de scan (dropdown com scans concluídos + inline KPIs: sites, drives, arquivos)
+- Botões de formato: CSV / JSONL
+- Filtros em cascata: site → drive → extensão (via `topExtensions`) → limite de linhas
+- Exportação assíncrona com polling automático e download automático ao concluir
+- Histórico de sessão (MAX_HISTORY=10): lista de jobs gerados com status vivo e botão de re-download
 
-#### ReportsPage (`/reports`)
-- Seletor de scan (dropdown com scans concluídos)
-- Configurações de exportação: formato (CSV/JSONL), filtros (site, drive, extensão), limite de linhas
-- Histórico de exportações da sessão (lista de jobs gerados)
-- Download de exportações antigas (se ainda disponíveis — TTL 24h no backend)
-- Estado persistido no `localStorage` (último scan selecionado, últimas configurações)
-
-#### TopFilesPage (`/top-files`)
-- Selector de scan
-- Top N configurável (50 / 100 / 500)
-- Tabela: Nome, Site, Drive, Extensão, Tamanho, Modificado, Link
-- Ordenação por tamanho (padrão), nome, data
-- Filtro por extensão (inline)
-- Botão de exportação do resultado atual
-- Endpoint: `GET /api/inventory/:scanId/top-files?limit=500`
-
-### Sidebar
-- Habilitar "Relatórios" → `/reports`
-- Habilitar "Top Arquivos" → `/top-files`
+### TopFilesPage (`/top-files`)
+- Seletor de scan + Top N configurável: 50 / 100 / 500
+- Tabela: Nome, Site (via siteMap), Drive, Extensão, Tamanho, Modificado, Link
+- Ordenação client-side: `size_desc` / `name_asc` / `date_desc`
+- Filtro por extensão derivado dos dados carregados (`availableExts`)
+- Barra de volume proporcional por linha (width = `bytes / maxBytes * 100%`)
+- Exportação CSV/JSONL com polling (mesmo padrão de InventoryPage)
 
 ---
 
@@ -211,36 +207,42 @@ startExport(format)
 
 ---
 
-## 📋 Sprint 16 — Simulação de Expurgo
+## ✅ Sprint 16 — Simulação de Expurgo
 
+**Commit:** `42277f2`  
 **Objetivo:** Interface de retenção e expurgo com confirmação dupla (replica lógica de `purge.service.js`).
 
-### Rota planejada
+### Entregáveis
+- `src/api/purge.api.ts` — `requestPurgeToken`, `executePurgeJob`, `getPurgeJobStatus`
 - `src/pages/ExpurgoPage.tsx` → `/expurgo`
+- `src/App.tsx` — rota `/expurgo` habilitada
+- `src/components/Layout.tsx` — "Simulação de Expurgo" habilitado na sidebar
 
-### Funcionalidades a implementar
-- Seletor de scan
-- Painel de regras de retenção: por extensão, por data, por tamanho mínimo, por site
-- Preview: tabela de arquivos que seriam expurgados + totais (contagem, bytes liberados)
-- Simulação (read-only) vs. Execução real (requer token de confirmação)
-- Fluxo de confirmação dupla:
-  1. Usuário configura regras → clica "Simular"
-  2. Preview exibido → clica "Executar expurgo"
-  3. Modal de confirmação → digita código recebido por e-mail / exibido
-  4. `POST /api/purge/confirm` → recebe `confirmToken`
-  5. `POST /api/retention/execute-job` com `confirmToken` → job assíncrono
-  6. Progresso via polling do job
-- Botão cancelar expurgo em andamento
+### Fluxo de 3 etapas
+**Etapa 1 — Config:** seletor de scan, extensão (via `topExtensions`), site, filtro de idade (30/90/180/365/730 dias), filtro de tamanho (1/10/100/500 MB, 1 GB) → botão "Simular"
 
-### Endpoints relevantes
+**Etapa 2 — Preview:** filtragem client-side em `getInventoryFiles()` (até 500 registros base, PREVIEW_LIMIT=200 exibidos); painel de impacto (arquivos afetados + bytes a liberar); botão "Executar Expurgo Agora"
+
+**Modal de confirmação:**
+- Overlay fullscreen (`position: fixed`)
+- Painel de resumo (DANGER_BG `#fff5f5`)
+- Aviso de irreversibilidade
+- Input: usuário deve digitar `"CONFIRMAR"` exatamente
+- Botão habilitado somente quando input correto
+
+**Etapa 3 — Execução:**
+1. `requestPurgeToken(rule)` → `{ confirmToken, expiresAt, requestHash }`
+2. `executePurgeJob(rule, confirmToken)` → `{ jobId }`
+3. Polling `getPurgeJobStatus(jobId)` a cada 3s (JOB_POLL_MS = 3 000)
+4. `JobProgress`: barra de progresso (completed/total), badge de status, stats live
+5. "Novo Expurgo" → reset para etapa 1
+
+### Endpoints
 ```
 POST /api/purge/confirm            → { confirmToken, expiresAt, requestHash }
 POST /api/retention/execute-job    → { jobId } (requer confirmToken no body)
 GET  /api/jobs/:jobId/status       → progresso do job
 ```
-
-### Sidebar
-- Habilitar "Simulação de Expurgo" → `/expurgo`
 
 ---
 
@@ -332,11 +334,11 @@ GET  /api/jobs/:jobId/status       → progresso do job
 | `/inventory` | Inventário | ✅ Funcional |
 | `/inventory/:scanId` | — (via Dashboard / Scans) | ✅ Funcional |
 | `/jobs/:jobId` | — (via Scans) | ✅ Funcional |
-| `/reports` | Relatórios | 📋 Sprint 14 |
-| `/top-files` | Top Arquivos | 📋 Sprint 14 |
+| `/reports` | Relatórios | ✅ Funcional |
+| `/top-files` | Top Arquivos | ✅ Funcional |
 | `/oneration-monitor` | Monitor Oneração | ✅ Funcional |
 | `/versioned-by-period` | Versionados por Período | ✅ Funcional |
-| `/expurgo` | Simulação de Expurgo | 📋 Sprint 16 |
+| `/expurgo` | Simulação de Expurgo | ✅ Funcional |
 | `/logs` | Logs | 📋 Sprint 17 |
 | `/audit` | Auditoria | 📋 Sprint 17 |
 | `/settings` | Configurações | 📋 Sprint 18 |
@@ -352,8 +354,9 @@ src/
 ├── api/
 │   ├── auth.api.ts        ✅ Login, branding, primeiro admin, logout
 │   ├── client.ts          ✅ HTTP centralizado, 401 → auth:unauthorized
-│   ├── inventory.api.ts   ✅ Summary, sites, drives, files, top-files
+│   ├── inventory.api.ts   ✅ Summary, sites, drives, files, top-files, versioned-by-period
 │   ├── jobs.api.ts        ✅ getJobStatus
+│   ├── purge.api.ts       ✅ requestPurgeToken, executePurgeJob, getPurgeJobStatus
 │   ├── reports.api.ts     ✅ exportInventory, getExportJobStatus, getDownloadUrl
 │   └── scans.api.ts       ✅ createScan, listScans, getScanStatus, cancelScan
 ├── components/
@@ -364,12 +367,17 @@ src/
 │   ├── useApi.ts          ✅ { data, loading, error, refetch }
 │   └── useJobStream.ts    ✅ SSE via EventSource
 ├── pages/
-│   ├── DashboardPage.tsx  ✅ KPIs, fluxo, top ext, top files, auto-refresh
-│   ├── InventoryPage.tsx  ✅ Filtros, tabela, export, seletor de scans
-│   ├── JobStatusPage.tsx  ✅ Progresso SSE de jobs
-│   ├── LoginPage.tsx      ✅ 3 modos, branding, modais
-│   ├── NotFoundPage.tsx   ✅ 404
-│   └── ScansPage.tsx      ✅ Lista + iniciar scan
+│   ├── DashboardPage.tsx          ✅ KPIs, fluxo, top ext, top files, auto-refresh
+│   ├── ExpurgoPage.tsx            ✅ Config→Preview→Execução, modal, polling (Sprint 16)
+│   ├── InventoryPage.tsx          ✅ Filtros, tabela, export, seletor de scans
+│   ├── JobStatusPage.tsx          ✅ Progresso SSE de jobs
+│   ├── LoginPage.tsx              ✅ 3 modos, branding, modais
+│   ├── NotFoundPage.tsx           ✅ 404
+│   ├── OnerationMonitorPage.tsx   ✅ Charts SVG, KPIs, tabela comparação (Sprint 15)
+│   ├── ReportsPage.tsx            ✅ Exportações configuráveis, histórico (Sprint 14)
+│   ├── ScansPage.tsx              ✅ Lista + iniciar scan
+│   ├── TopFilesPage.tsx           ✅ Top N, ordenação, barra de volume (Sprint 14)
+│   └── VersionedByPeriodPage.tsx  ✅ Versões por período, fallback automático (Sprint 15)
 └── types/
     └── index.ts           ✅ Todos os tipos da API
 ```
