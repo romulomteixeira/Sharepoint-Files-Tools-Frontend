@@ -35,7 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
     section: 'Visão executiva',
     items: [
       { icon: 'DB', title: 'Dashboard',        sub: 'KPIs, tendência e consumo',          to: '/' },
-      { icon: 'RL', title: 'Relatórios',        sub: 'Exportações e Top 500',              disabled: true },
+      { icon: 'RL', title: 'Relatórios',        sub: 'Exportações e Top 500',              to: '/reports' },
       { icon: 'LC', title: 'Licenças & Espaço', sub: 'Origem da capacidade SharePoint',    disabled: true },
     ],
   },
@@ -44,7 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { icon: 'ST', title: 'Sites',                   sub: 'Origem e execução do scan',       to: '/scans' },
       { icon: 'IV', title: 'Inventário',              sub: 'Arquivos, filtros e base',        to: '/inventory' },
-      { icon: 'TP', title: 'Top Arquivos',            sub: 'Maiores e mais versionados',      disabled: true },
+      { icon: 'TP', title: 'Top Arquivos',            sub: 'Maiores e mais versionados',      to: '/top-files' },
       { icon: 'ON', title: 'Monitor Oneração',        sub: 'Crescimento e impacto',           disabled: true },
       { icon: 'VP', title: 'Versionados por Período', sub: 'Dia, semana e mês',               disabled: true },
       { icon: 'EX', title: 'Simulação de Expurgo',    sub: 'Retenção e economia',             disabled: true },
