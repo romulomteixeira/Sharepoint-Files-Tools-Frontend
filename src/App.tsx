@@ -15,6 +15,8 @@
  *   /expurgo               → ExpurgoPage              (simulação de expurgo com confirmação dupla)
  *   /logs                  → LogsPage                 (eventos e logs do sistema)
  *   /audit                 → AuditPage                (trilha de auditoria administrativa)
+ *   /settings              → SettingsPage             (configurações do sistema)
+ *   /admin                 → AdminPage                (gerenciamento de usuários)
  *   *                      → NotFoundPage             (protegida)
  */
 
@@ -34,6 +36,8 @@ import VersionedByPeriodPage   from './pages/VersionedByPeriodPage';
 import ExpurgoPage             from './pages/ExpurgoPage';
 import LogsPage                from './pages/LogsPage';
 import AuditPage               from './pages/AuditPage';
+import SettingsPage            from './pages/SettingsPage';
+import AdminPage               from './pages/AdminPage';
 import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
@@ -91,6 +95,8 @@ export default function App(): React.ReactElement {
           <Route path="expurgo"            element={<ExpurgoPage />} />
           <Route path="logs"               element={<LogsPage />} />
           <Route path="audit"              element={<AuditPage />} />
+          <Route path="settings"           element={<SettingsPage />} />
+          <Route path="admin"              element={<AdminPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
