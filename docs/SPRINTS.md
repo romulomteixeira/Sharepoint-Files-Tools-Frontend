@@ -246,33 +246,36 @@ GET  /api/jobs/:jobId/status       → progresso do job
 
 ---
 
-## 📋 Sprint 17 — Logs + Auditoria
+## ✅ Sprint 17 — Logs + Auditoria
 
-**Objetivo:** Visibilidade operacional de jobs e trilha de auditoria de ações.
+**Commit:** `0edd687`  
+**Objetivo:** Visibilidade operacional de eventos e trilha de auditoria de ações administrativas.
 
-### Rota planejada
+### Entregáveis
+- `src/api/logs.api.ts` — `getLogs()`, `getAuditLogs()`, helper `castRaw<T>()`
 - `src/pages/LogsPage.tsx` → `/logs`
 - `src/pages/AuditPage.tsx` → `/audit`
+- `src/App.tsx` — rotas `/logs` e `/audit` habilitadas
+- `src/components/Layout.tsx` — "Logs" e "Auditoria" ativos na sidebar
 
-### Funcionalidades a implementar
+### LogsPage (`/logs`)
+- Endpoint: `GET /api/logs?limit=N` (até 2 000 entradas)
+- Tabela: timestamp, level badge (info/warn/error), fonte/kind, mensagem, scan/job ID
+- Filtro por nível (tabs All / Info / Warn / Error) + busca textual em todos os campos
+- Clique na linha expande detalhes em JSON
+- Auto-refresh a cada 30 s (toggle)
+- Export CSV dos itens visíveis
 
-#### LogsPage (`/logs`)
-- Lista paginada de jobs (todos os tipos: scan, export, version, purge)
-- Filtros: tipo, status, período
-- Detalhes do job (clique expande): `progressJsonb`, `lastError`, duração
-- Link para `JobStatusPage` para jobs em andamento
-- Auto-refresh para jobs ativos
-- Endpoint a confirmar: `GET /api/jobs?type=&status=&cursor=`
+### AuditPage (`/audit`)
+- Endpoint: `GET /api/audit?limit=N&scanId=&evt=&user=`
+- Filtros server-side: usuário, evento/ação (com `<datalist>` de sugestões), scanId
+- Busca local adicional sobre os itens carregados
+- Tabela: timestamp, badge de ação (colorido por tipo), usuário + e-mail, destino, mensagem
+- Export CSV
 
-#### AuditPage (`/audit`)
-- Trilha de ações administrativas (criação de scans, execuções de expurgo, exports)
-- Filtro por usuário, tipo de ação, período
-- Exportação da trilha como CSV
-- Endpoint a confirmar: `GET /api/audit?cursor=`
-
-### Sidebar
-- Habilitar "Logs" → `/logs`
-- Habilitar "Auditoria" → `/audit`
+### Nota técnica
+O backend retorna JSON plano `{ items: [...] }` sem envelope `{ success, data }`.
+`castRaw<T>(res)` extrai o array independente do formato (envelope futuro ou raw).
 
 ---
 
@@ -339,8 +342,8 @@ GET  /api/jobs/:jobId/status       → progresso do job
 | `/oneration-monitor` | Monitor Oneração | ✅ Funcional |
 | `/versioned-by-period` | Versionados por Período | ✅ Funcional |
 | `/expurgo` | Simulação de Expurgo | ✅ Funcional |
-| `/logs` | Logs | 📋 Sprint 17 |
-| `/audit` | Auditoria | 📋 Sprint 17 |
+| `/logs` | Logs | ✅ Funcional |
+| `/audit` | Auditoria | ✅ Funcional |
 | `/settings` | Configurações | 📋 Sprint 18 |
 | `/admin` | Administração | 📋 Sprint 18 |
 | `/licenses` | Licenças & Espaço | 💡 Sprint 19 |
@@ -356,6 +359,7 @@ src/
 │   ├── client.ts          ✅ HTTP centralizado, 401 → auth:unauthorized
 │   ├── inventory.api.ts   ✅ Summary, sites, drives, files, top-files, versioned-by-period
 │   ├── jobs.api.ts        ✅ getJobStatus
+│   ├── logs.api.ts        ✅ getLogs, getAuditLogs, castRaw (Sprint 17)
 │   ├── purge.api.ts       ✅ requestPurgeToken, executePurgeJob, getPurgeJobStatus
 │   ├── reports.api.ts     ✅ exportInventory, getExportJobStatus, getDownloadUrl
 │   └── scans.api.ts       ✅ createScan, listScans, getScanStatus, cancelScan
@@ -368,10 +372,12 @@ src/
 │   └── useJobStream.ts    ✅ SSE via EventSource
 ├── pages/
 │   ├── DashboardPage.tsx          ✅ KPIs, fluxo, top ext, top files, auto-refresh
+│   ├── AuditPage.tsx              ✅ Trilha de auditoria, filtros server-side, CSV (Sprint 17)
 │   ├── ExpurgoPage.tsx            ✅ Config→Preview→Execução, modal, polling (Sprint 16)
 │   ├── InventoryPage.tsx          ✅ Filtros, tabela, export, seletor de scans
 │   ├── JobStatusPage.tsx          ✅ Progresso SSE de jobs
 │   ├── LoginPage.tsx              ✅ 3 modos, branding, modais
+│   ├── LogsPage.tsx               ✅ Eventos de sistema, filtros, auto-refresh (Sprint 17)
 │   ├── NotFoundPage.tsx           ✅ 404
 │   ├── OnerationMonitorPage.tsx   ✅ Charts SVG, KPIs, tabela comparação (Sprint 15)
 │   ├── ReportsPage.tsx            ✅ Exportações configuráveis, histórico (Sprint 14)
