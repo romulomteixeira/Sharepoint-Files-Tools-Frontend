@@ -181,6 +181,38 @@ export interface ExportJob {
   finishedAt?: string;
 }
 
+// ─── Monitor Oneração ─────────────────────────────────────────────────────────
+
+/** Ponto na linha do tempo de crescimento: um scan = um ponto */
+export interface GrowthPoint {
+  scanId:     string;
+  date:       string;   // ISO do scan.createdAt
+  totalFiles: number;
+  totalBytes: number;
+  deltaFiles?: number;  // diferença em relação ao ponto anterior
+  deltaBytes?: number;
+}
+
+// ─── Versionados por Período ──────────────────────────────────────────────────
+
+export type VersionPeriodUnit = 'day' | 'week' | 'month';
+
+/** Bucket de versões agrupado por período */
+export interface VersionPeriodBucket {
+  period:       string;  // "2024-01-15" | "2024-W03" | "2024-01"
+  versionCount: number;
+  versionBytes: number;
+  fileCount:    number;
+}
+
+/** Resposta do endpoint /api/inventory/:scanId/versioned-by-period */
+export interface VersionedPeriodData {
+  unit:              VersionPeriodUnit;
+  buckets:           VersionPeriodBucket[];
+  totalVersions:     number;
+  totalVersionBytes: number;
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export interface HealthDetail {

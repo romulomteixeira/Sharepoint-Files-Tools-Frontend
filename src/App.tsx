@@ -8,9 +8,11 @@
  *   /jobs/:jobId           → JobStatusPage   (protegida, SSE de progresso)
  *   /inventory             → InventoryPage   (seletor de scans)
  *   /inventory/:scanId     → InventoryPage   (inventário de um scan)
- *   /reports               → ReportsPage     (exportações configuráveis)
- *   /top-files             → TopFilesPage    (top N maiores arquivos)
- *   *                      → NotFoundPage    (protegida)
+ *   /reports               → ReportsPage              (exportações configuráveis)
+ *   /top-files             → TopFilesPage             (top N maiores arquivos)
+ *   /oneration-monitor     → OnerationMonitorPage     (evolução de consumo)
+ *   /versioned-by-period   → VersionedByPeriodPage    (versões por período)
+ *   *                      → NotFoundPage             (protegida)
  */
 
 import React from 'react';
@@ -22,9 +24,11 @@ import DashboardPage from './pages/DashboardPage';
 import ScansPage     from './pages/ScansPage';
 import JobStatusPage from './pages/JobStatusPage';
 import InventoryPage from './pages/InventoryPage';
-import ReportsPage   from './pages/ReportsPage';
-import TopFilesPage  from './pages/TopFilesPage';
-import NotFoundPage  from './pages/NotFoundPage';
+import ReportsPage             from './pages/ReportsPage';
+import TopFilesPage            from './pages/TopFilesPage';
+import OnerationMonitorPage    from './pages/OnerationMonitorPage';
+import VersionedByPeriodPage   from './pages/VersionedByPeriodPage';
+import NotFoundPage            from './pages/NotFoundPage';
 
 // ─── Guard de rota protegida ──────────────────────────────────────────────────
 
@@ -74,8 +78,10 @@ export default function App(): React.ReactElement {
           <Route path="jobs/:jobId" element={<JobStatusPage />} />
           <Route path="inventory"          element={<InventoryPage />} />
           <Route path="inventory/:scanId" element={<InventoryPage />} />
-          <Route path="reports"           element={<ReportsPage />} />
-          <Route path="top-files"         element={<TopFilesPage />} />
+          <Route path="reports"              element={<ReportsPage />} />
+          <Route path="top-files"           element={<TopFilesPage />} />
+          <Route path="oneration-monitor"   element={<OnerationMonitorPage />} />
+          <Route path="versioned-by-period" element={<VersionedByPeriodPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
