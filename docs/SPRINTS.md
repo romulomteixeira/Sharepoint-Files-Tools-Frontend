@@ -314,22 +314,57 @@ O backend retorna JSON plano `{ items: [...] }` sem envelope `{ success, data }`
 
 ---
 
-## 💡 Sprint 19 — Licenças & Espaço
+## ✅ Sprint 19 — Licenças & Espaço
 
+**Commit:** `b9733f3`  
 **Objetivo:** Painel de capacidade e licenciamento SharePoint Online.
 
-### Rota planejada
+### Entregáveis
+- `src/api/licenses.api.ts` — `lfetch()` nativo; interfaces `SkuEntry`, `LicenseTotals`, `LicenseInfo`, `CapacityNow`, `Divergence`, `LicenseCapacityReport`; `getLicenseCapacity()`
 - `src/pages/LicensesPage.tsx` → `/licenses`
+- `src/App.tsx` — rota `/licenses` habilitada
+- `src/components/Layout.tsx` — "Licenças & Espaço" activo na sidebar
 
-### Funcionalidades a implementar
-- Quota total do tenant vs. utilizado vs. disponível
-- Breakdown por site collection
-- Projeção de crescimento (com base em dados históricos)
-- Alerta de uso crítico (> 80% da quota)
-- Endpoint a confirmar: `GET /api/tenant/quota`
+### Funcionalidades implementadas
 
-### Sidebar
-- Habilitar "Licenças & Espaço" → `/licenses`
+#### Gauge SVG circular
+- `r=70`, `strokeDasharray` para arco proporcional ao % de uso
+- Cor dinâmica: verde (< 75%), laranja (75–90%), vermelho (≥ 90%)
+- Texto central com percentagem e total em TB
+
+#### KPIs (2×2)
+| Card | Valor | Fonte |
+|------|-------|-------|
+| Quota Total | `capacityNow.totalHuman` | `totalSource` |
+| Utilizado | `capacityNow.usedHuman` | `usedSource` |
+| Disponível | `capacityNow.availableHuman` | — |
+| % de Uso | calculado | — |
+
+#### Alert de uso elevado
+- ≥ 80%: banner amarelo com estimativa de esgotamento
+- ≥ 90%: banner vermelho com texto de urgência
+
+#### Projecção de crescimento
+- `calcGrowthRate(scans)`: bytes/dia entre o primeiro e o último scan concluído
+- Exibe crescimento/dia, /mês, /ano e estimativa de esgotamento em dias
+- Requer mínimo 2 scans concluídos com `totalBytes`
+
+#### Tabela de licenças SKU
+- Colunas: SKU (nome + partNumber), Activos, Suspensos, Aviso, Contribuição GB, Tipo (Service Plan / Add-on)
+- Totais de capacidade: base (1024 GB) + licenças + total estimado
+
+#### Bloco de divergência
+- Tenant (Graph) vs. Estimado (licenças) vs. Diferença
+
+#### Estado de erro
+- Erro de rede: mensagem e botão recarregar
+- `ok: false` (permissões Graph): aviso com campo `hint` do backend (instrucções de configuração)
+
+### Endpoint
+```
+GET /api/sharepoint/licenses → LicenseCapacityReport (JSON plano, sem envelope)
+```
+Pode retornar `{ ok: false, error, hint }` com HTTP 200 se faltar `Reports.Read.All` + Admin Consent.
 
 ---
 
@@ -351,7 +386,7 @@ O backend retorna JSON plano `{ items: [...] }` sem envelope `{ success, data }`
 | `/audit` | Auditoria | ✅ Funcional |
 | `/settings` | Configurações | ✅ Funcional |
 | `/admin` | Administração | ✅ Funcional |
-| `/licenses` | Licenças & Espaço | 💡 Sprint 19 |
+| `/licenses` | Licenças & Espaço | ✅ Funcional |
 
 ---
 
@@ -364,6 +399,7 @@ src/
 │   ├── client.ts          ✅ HTTP centralizado, 401 → auth:unauthorized
 │   ├── inventory.api.ts   ✅ Summary, sites, drives, files, top-files, versioned-by-period
 │   ├── jobs.api.ts        ✅ getJobStatus
+│   ├── licenses.api.ts    ✅ getLicenseCapacity, SkuEntry, CapacityNow, Divergence (Sprint 19)
 │   ├── logs.api.ts        ✅ getLogs, getAuditLogs, castRaw (Sprint 17)
 │   ├── settings.api.ts    ✅ getConfig, saveConfig, listAdminUsers, CRUD usuarios (Sprint 18)
 │   ├── purge.api.ts       ✅ requestPurgeToken, executePurgeJob, getPurgeJobStatus
@@ -391,6 +427,7 @@ src/
 │   ├── ScansPage.tsx              ✅ Lista + iniciar scan
 │   ├── SettingsPage.tsx           ✅ Config em accordion, admin/leitura, save (Sprint 18)
 │   ├── TopFilesPage.tsx           ✅ Top N, ordenação, barra de volume (Sprint 14)
+│   ├── LicensesPage.tsx           ✅ Gauge SVG, KPIs, SKUs, projecção (Sprint 19)
 │   └── VersionedByPeriodPage.tsx  ✅ Versões por período, fallback automático (Sprint 15)
 └── types/
     └── index.ts           ✅ Todos os tipos da API
