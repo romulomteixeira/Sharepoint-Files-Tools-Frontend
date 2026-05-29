@@ -458,3 +458,297 @@ src/
 - `npm run type-check` — TypeScript sem erros antes de cada commit
 - `npm run lint` — ESLint com `--max-warnings 0`
 - `npm run build` — build de produção Vite deve ser limpo
+
+---
+
+## Diagnóstico — Gaps identificados (base para Sprints 20–24)
+
+> Análise comparativa entre `public/app.js` (vanilla legado) e o React implementado (Sprints 10–19),
+> incluindo funcionalidades adicionadas no Sprint 8 do backend (`Sharepoint-Files-Tools`).
+
+### GAP 1 — `ExpurgoPage.tsx` incompleta (CRÍTICO)
+
+O Sprint 16 implementou **apenas 1 dos 4 tipos de expurgo**. O `app.js` legado e o backend suportam:
+
+| Operação | Endpoint simulação | Endpoint execução | Status React |
+|---|---|---|---|
+| Retenção de versões | `POST /api/retention/simulate` | `POST /api/retention/execute-job` | ✅ Implementado |
+| Expurgo de arquivos | `POST /api/file-retention/simulate` | `POST /api/file-retention/execute-job` | ❌ Ausente |
+| Limpeza de lixeira | `POST /api/recycle-bin/simulate` | `POST /api/recycle-bin/execute-job` | ❌ Ausente |
+| Exclusão de sites | `POST /api/sites/simulate` | `POST /api/sites/execute-job` | ❌ Ausente (backend Sprint 8) |
+
+### GAP 2 — `purge.api.ts` hardcoded para um único tipo de operação
+
+`requestPurgeToken` envia `operation: 'retention_execute'` fixo. O backend valida `VALID_OPERATIONS`
+e o Sprint 8 adicionou `retention_sites` — o frontend nunca envia esse valor.
+Faltam funções para `file_retention_execute`, `recycle_bin_execute` e `retention_sites`.
+
+### GAP 3 — `ScansPage.tsx` ainda é o stub do Sprint 10
+
+O Sprint 8 do backend adicionou busca de sites por slug/nome e execução de scan apenas nos sites
+selecionados. A `ScansPage` atual só tem um botão "Novo Scan" sem parâmetros. Faltam:
+- Busca de sites via `GET /api/sites?search=&top=`
+- Seleção por checkboxes individuais + "Selecionar tudo"
+- Passagem de `siteIds[]` para `POST /api/scans`
+- Toggle de versionamento
+
+### GAP 4 — `ExpurgoPage.tsx` usa polling em vez de SSE
+
+O job de expurgo é monitorado via `setInterval` (3 s). O hook `useJobStream.ts` existe mas não é
+usado na página. O backend suporta `EventSource` via `POST /api/jobs/:jobId/stream`.
+
+---
+
+## 📋 Sprint 20 — `purge.api.ts` completo + abas Arquivos e Lixeira no ExpurgoPage
+
+**Branch:** `feat/sprint-20-expurgo-completo`
+**Objetivo:** Cobrir GAP 1 (parcial) e GAP 2. Implementar os tipos de expurgo faltantes
+exceto site-deletion (que envolve lógica própria de busca e vai para Sprint 21).
+
+### Entregáveis
+
+#### `src/api/purge.api.ts` — reescrita
+- Tipo discriminado `PurgeOperation`:
+  ```ts
+  type PurgeOperation =
+    | 'retention_execute'
+    | 'file_retention_execute'
+    | 'recycle_bin_execute'
+    | 'retention_sites';
+  ```
+- `requestPurgeToken(operation, params)` — `operation` agora é parâmetro dinâmico
+- `simulateVersionRetention(params)` → `POST /api/retention/simulate`
+- `executeVersionRetentionJob(params, token)` → `POST /api/retention/execute-job`
+- `simulateFileRetention(params)` → `POST /api/file-retention/simulate`
+- `executeFileRetentionJob(params, token)` → `POST /api/file-retention/execute-job`
+- `simulateRecycleBin(params)` → `POST /api/recycle-bin/simulate`
+- `exportRecycleBin(params)` → `POST /api/recycle-bin/export`
+- `executeRecycleBinJob(params, token)` → `POST /api/recycle-bin/execute-job`
+
+#### `src/types/index.ts` — novos tipos
+- `SimulateVersionResult` — `{ count, bytes, items[] }`
+- `SimulateFileResult` — `{ count, bytes, items[] }`
+- `SimulateRecycleBinResult` — `{ count, bytes, items[] }`
+
+#### `src/pages/ExpurgoPage.tsx` — adicionar abas
+- Seletor de aba no topo: `Versões | Arquivos | Lixeira`
+- Estado de aba isolado: cada aba tem seu próprio step (config/preview/done) sem interferência
+- **Aba Versões** — sem alteração (já funcional)
+- **Aba Arquivos** — Config (extensão, site, idade, tamanho) → Simular → Preview table → Modal → Job
+  - `requestPurgeToken('file_retention_execute', params)`
+  - `executeFileRetentionJob(params, token)`
+- **Aba Lixeira** — Config (site) → Simular (contagem + bytes estimados) → Exportar ou Executar → Job
+  - Botão extra "Exportar relatório" via `exportRecycleBin`
+  - `requestPurgeToken('recycle_bin_execute', params)`
+  - `executeRecycleBinJob(params, token)`
+- Modal de confirmação (`CONFIRMAR`) reutilizado nas 3 abas
+
+### Checklist de conclusão
+- [ ] `purge.api.ts` com todos os 8 métodos tipados
+- [ ] `SimulateVersionResult`, `SimulateFileResult`, `SimulateRecycleBinResult` em `types/index.ts`
+- [ ] Aba Arquivos funcional (simulação + execução)
+- [ ] Aba Lixeira funcional (simulação + exportação + execução)
+- [ ] Aba Versões não regrediu
+- [ ] `npm run type-check` zero erros
+- [ ] `npm run lint` zero warnings
+- [ ] `npm run build` limpo
+- [ ] Commit + push + PR para `develop`
+
+---
+
+## 📋 Sprint 21 — ExpurgoPage: aba Exclusão de Sites (backend Sprint 8)
+
+**Branch:** `feat/sprint-21-expurgo-sites`
+**Objetivo:** Cobrir GAP 1 (completo) — implementar a aba de exclusão de sites que corresponde
+ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução dos selecionados).
+
+### Entregáveis
+
+#### `src/api/purge.api.ts` — extensão
+- `SiteTarget`: `{ siteId: string; siteUrl: string; displayName: string }`
+- `SimulateSitesResult`: `{ sites: SiteTarget[]; totalFiles: number; totalBytes: number }`
+- `simulateSiteDeletion(scanId, siteIds[])` → `POST /api/sites/simulate`
+- `executeSiteDeleteJob(scanId, siteIds[], token)` → `POST /api/sites/execute-job`
+
+#### `src/api/scans.api.ts` — extensão
+- `searchSites(search: string, top?: number)` → `GET /api/sites?search=&top=`
+  - Retorna `{ id, displayName, webUrl }[]`
+
+#### `src/pages/ExpurgoPage.tsx` — 4ª aba
+- Seletor de aba passa a ter: `Versões | Arquivos | Lixeira | Sites`
+- **Aba Sites:**
+  - Input de busca com debounce 400 ms → lista resultados com checkboxes
+  - Badge contador de sites selecionados
+  - Botão "Simular" → painel de impacto (arquivos totais, bytes estimados)
+  - Modal `CONFIRMAR` → `requestPurgeToken('retention_sites', { scanId, siteIds })`
+  - Job com barra de progresso mostrando site atual sendo processado
+
+### Checklist de conclusão
+- [ ] `searchSites` em `scans.api.ts`
+- [ ] `simulateSiteDeletion` e `executeSiteDeleteJob` em `purge.api.ts`
+- [ ] Aba Sites com busca, checkboxes, simulação, confirmação e job
+- [ ] `operation: 'retention_sites'` enviado corretamente ao backend
+- [ ] Abas Versões, Arquivos e Lixeira não regrediram
+- [ ] `npm run type-check` zero erros
+- [ ] `npm run lint` zero warnings
+- [ ] `npm run build` limpo
+- [ ] Commit + push + PR para `develop`
+
+---
+
+## 📋 Sprint 22 — ScansPage completa com seleção de sites (backend Sprint 8)
+
+**Branch:** `feat/sprint-22-scans-site-selection`
+**Objetivo:** Cobrir GAP 3 — substituir o stub básico do ScansPage pela interface completa de
+seleção de sites do Sprint 8 do backend.
+
+### Entregáveis
+
+#### `src/api/scans.api.ts` — extensão
+- `searchSites` (se não adicionado no Sprint 21)
+- `createScan(options?: { siteIds?: string[]; enableVersioning?: boolean })` — ampliar assinatura
+
+#### `src/pages/ScansPage.tsx` — reescrita completa
+- **Painel "Iniciar Novo Scan"** (expansível ou sempre visível):
+  - Input de busca de sites com debounce 400 ms
+  - Lista de resultados com checkbox por item + "Selecionar tudo" / "Limpar seleção"
+  - Chips com nomes dos sites selecionados (máx 5 visíveis + "+N mais")
+  - Toggle "Incluir versionamento automático"
+  - Botão "Scan dos sites selecionados" (quando há seleção) ou "Scan completo do tenant"
+- **Tabela de scans existentes** — mantida e melhorada:
+  - Coluna "Tipo" — "Completo" ou "Parcial (N sites)"
+  - Status badge respeitando `QUEUED | RUNNING | DONE | ERROR | CANCELLED`
+  - Link "Acompanhar" para scans `running` ou `queued` → `/` (Dashboard)
+  - Link "Inventário" para scans `completed` → `/inventory/:scanId`
+  - Link "Logs" para scans `error`
+- Toast de confirmação ao iniciar novo scan
+
+### Checklist de conclusão
+- [ ] Busca de sites com debounce e checkboxes
+- [ ] `createScan` aceita `siteIds` e `enableVersioning`
+- [ ] Botão contextual (selecionados vs. tenant completo)
+- [ ] Tabela de scans com coluna "Tipo"
+- [ ] `npm run type-check` zero erros
+- [ ] `npm run lint` zero warnings
+- [ ] `npm run build` limpo
+- [ ] Commit + push + PR para `develop`
+
+---
+
+## 📋 Sprint 23 — SSE no ExpurgoPage + consolidação geral
+
+**Branch:** `feat/sprint-23-sse-expurgo`
+**Objetivo:** Cobrir GAP 4 — substituir polling por streaming real-time no ExpurgoPage,
+e garantir consistência visual e funcional em todas as 4 abas.
+
+### Entregáveis
+
+#### `src/hooks/useJobStream.ts` — verificação e extensão
+- Verificar se o hook atual aceita `onProgress` callback ou apenas expõe `progress` reativo
+- Se necessário, adicionar suporte a `onComplete` e `onError` callbacks para integração com ExpurgoPage
+
+#### `src/pages/ExpurgoPage.tsx` — streaming
+- Remove `JOB_POLL_MS` e todos os `setInterval`/`clearInterval` de monitoramento de job
+- Usa `useJobStream(jobId)` para todas as 4 abas
+- Fallback automático: se SSE falhar após 5 s, ativa polling `getJobStatus` a 5 s
+- Estado de job compartilhado entre abas: uma aba com job ativo mostra badge na tab
+
+#### Revisão de consistência
+- Garantir que trocar de aba reseta step para `config` se não houver job ativo
+- Garantir que job em andamento em uma aba não impede simulação em outra
+- Mensagens de erro padronizadas (reutilizar helper `fmtApiError` se existir)
+- Verificar edge cases: token expirado (reemitir token), job cancelado, job com status `error`
+
+### Checklist de conclusão
+- [ ] `useJobStream` funciona para todas as 4 abas
+- [ ] Polling removido do ExpurgoPage
+- [ ] Fallback de polling implementado
+- [ ] Badge de "job ativo" na aba correspondente
+- [ ] Edge cases de token expirado e job cancelado tratados
+- [ ] `npm run type-check` zero erros
+- [ ] `npm run lint` zero warnings
+- [ ] `npm run build` limpo
+- [ ] Commit + push + PR para `develop`
+
+---
+
+## 📋 Sprint 24 — QA final, checagem completa e merge para main
+
+**Branch:** `develop → main` via PR
+
+**Objetivo:** Validação end-to-end de tudo que foi planejado (Sprints 20–23) vs. o que foi
+implementado, identificando qualquer item que tenha passado despercebido, e merge final.
+
+### Atividades
+
+#### 1. Checagem estrutural (comparação vanilla vs. React)
+Percorrer o `public/app.js` e `public/index.html` e confirmar que cada funcionalidade tem
+equivalente no React:
+
+| Funcionalidade legado | Página React | Verificado |
+|---|---|---|
+| Login / primeiro acesso / OAuth | `LoginPage` | [ ] |
+| Dashboard KPIs + top ext + top files | `DashboardPage` | [ ] |
+| Iniciar scan com seleção de sites | `ScansPage` (Sprint 22) | [ ] |
+| Inventário com filtros + paginação + export | `InventoryPage` | [ ] |
+| Top arquivos por tamanho / total / versões | `TopFilesPage` | [ ] |
+| Monitor Oneração por janela temporal | `OnerationMonitorPage` | [ ] |
+| Versionados por período com fallback | `VersionedByPeriodPage` | [ ] |
+| Retenção de versões (simulação + execução) | `ExpurgoPage` — aba Versões | [ ] |
+| Expurgo de arquivos (simulação + execução) | `ExpurgoPage` — aba Arquivos (Sprint 20) | [ ] |
+| Limpeza de lixeira (simulação + execução) | `ExpurgoPage` — aba Lixeira (Sprint 20) | [ ] |
+| Exclusão de sites (busca + checkboxes + job) | `ExpurgoPage` — aba Sites (Sprint 21) | [ ] |
+| Relatórios configuráveis com histórico | `ReportsPage` | [ ] |
+| Logs de sistema com filtro e auto-refresh | `LogsPage` | [ ] |
+| Trilha de auditoria com filtros server-side | `AuditPage` | [ ] |
+| Configurações em accordion (admin/leitura) | `SettingsPage` | [ ] |
+| Administração de usuários CRUD | `AdminPage` | [ ] |
+| Licenças & Espaço com gauge e projeção | `LicensesPage` | [ ] |
+
+#### 2. Smoke tests manuais contra o backend
+- [ ] Login → sessão → logout
+- [ ] Scan parcial (sites selecionados) → acompanhar progresso → inventário
+- [ ] Scan completo → Dashboard KPIs
+- [ ] Expurgo de versões — simulação + confirmação + job completo
+- [ ] Expurgo de arquivos — simulação + confirmação + job completo
+- [ ] Lixeira — simulação + exportação + execução
+- [ ] Exclusão de sites — busca, seleção, simulação, execução
+- [ ] Exportação CSV e JSONL do inventário
+- [ ] Configurações — salvar e recarregar
+
+#### 3. Build final
+- [ ] `npm run type-check` zero erros
+- [ ] `npm run lint` zero warnings
+- [ ] `npm run build` limpo
+- [ ] `docker build` passa sem erros
+
+#### 4. Documentação
+- [ ] `docs/SPRINTS.md` — marcar Sprints 20–23 como ✅ concluídas
+- [ ] Mapa de rotas atualizado com status final
+- [ ] Árvore de arquivos atualizada
+
+#### 5. PR e merge
+- [ ] PR `develop → main` com descrição completa dos Sprints 20–23
+- [ ] Review e merge
+
+---
+
+## Mapa de rotas — planejado pós Sprint 24
+
+| Rota | Sidebar | Status |
+|------|---------|--------|
+| `/` | Dashboard | ✅ Funcional (Sprint 12) |
+| `/scans` | Sites | 📋 Reescrita planejada (Sprint 22) |
+| `/inventory` | Inventário | ✅ Funcional (Sprint 13) |
+| `/inventory/:scanId` | — | ✅ Funcional (Sprint 13) |
+| `/jobs/:jobId` | — | ✅ Funcional (Sprint 10) |
+| `/reports` | Relatórios | ✅ Funcional (Sprint 14) |
+| `/top-files` | Top Arquivos | ✅ Funcional (Sprint 14) |
+| `/oneration-monitor` | Monitor Oneração | ✅ Funcional (Sprint 15) |
+| `/versioned-by-period` | Versionados por Período | ✅ Funcional (Sprint 15) |
+| `/expurgo` | Simulação de Expurgo | 📋 Completar abas (Sprint 20–21) |
+| `/logs` | Logs | ✅ Funcional (Sprint 17) |
+| `/audit` | Auditoria | ✅ Funcional (Sprint 17) |
+| `/settings` | Configurações | ✅ Funcional (Sprint 18) |
+| `/admin` | Administração | ✅ Funcional (Sprint 18) |
+| `/licenses` | Licenças & Espaço | ✅ Funcional (Sprint 19) |
