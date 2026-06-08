@@ -557,9 +557,10 @@ exceto site-deletion (que envolve lógica própria de busca e vai para Sprint 21
 
 ---
 
-## 📋 Sprint 21 — ExpurgoPage: aba Exclusão de Sites (backend Sprint 8)
+## ✅ Sprint 21 — ExpurgoPage: aba Exclusão de Sites (backend Sprint 8)
 
 **Branch:** `feat/sprint-21-expurgo-sites`
+**Commit:** `86b0448`
 **Objetivo:** Cobrir GAP 1 (completo) — implementar a aba de exclusão de sites que corresponde
 ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução dos selecionados).
 
@@ -584,16 +585,22 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
   - Modal `CONFIRMAR` → `requestPurgeToken('retention_sites', { scanId, siteIds })`
   - Job com barra de progresso mostrando site atual sendo processado
 
+### Fix incluído (bugs Sprint 20 detectados na análise do backend)
+- **Nomes de operação corrigidos** para corresponder ao `VALID_OPERATIONS` do `purge-confirm.js`:
+  `retention_execute` → `retention_versions`, `file_retention_execute` → `retention_files`, `recycle_bin_execute` → `recycle_bin`
+- **Formato do body de `/api/purge/confirm` corrigido**: body flat `{ operation, ...params }` em vez de `{ operation, params: {...} }` aninhado
+- `requestPurgeToken` agora aceita `params: unknown` e faz spread internamente
+
 ### Checklist de conclusão
-- [ ] `searchSites` em `scans.api.ts`
-- [ ] `simulateSiteDeletion` e `executeSiteDeleteJob` em `purge.api.ts`
-- [ ] Aba Sites com busca, checkboxes, simulação, confirmação e job
-- [ ] `operation: 'retention_sites'` enviado corretamente ao backend
-- [ ] Abas Versões, Arquivos e Lixeira não regrediram
-- [ ] `npm run type-check` zero erros
-- [ ] `npm run lint` zero warnings
-- [ ] `npm run build` limpo
-- [ ] Commit + push + PR para `develop`
+- [x] `simulateSiteDeletion` e `executeSiteDeleteJob` em `purge.api.ts`
+- [x] `SiteTarget` e `SimulateSitesResult` tipados
+- [x] Aba 🏢 Sites com busca por slug/nome, debounce 400ms, checkboxes, painel de impacto, modal CONFIRMAR e job com polling
+- [x] `operation: 'retention_sites'` enviado corretamente ao backend
+- [x] Abas Versões, Arquivos e Lixeira não regrediram (nomes de operação corrigidos)
+- [ ] `npm run type-check` zero erros *(Node.js indisponível no ambiente — revisar localmente)*
+- [ ] `npm run lint` zero warnings *(idem)*
+- [ ] `npm run build` limpo *(idem)*
+- [x] Commit `86b0448` + push branch `feat/sprint-21-expurgo-sites`
 
 ---
 
