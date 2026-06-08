@@ -28,6 +28,8 @@ import {
   simulateRecycleBin,
   executeRecycleBinJob,
   exportRecycleBinBlob,
+  simulateSiteDeletion,
+  executeSiteDeleteJob,
   getPurgeJobStatus,
 } from '../api/purge.api';
 import type { FileItem, SiteRollup, JobStatusDetail, InventorySummary } from '../types';
@@ -38,6 +40,8 @@ import type {
   ScopeParam,
   SimulateFileResult,
   SimulateRecycleBinResult,
+  SiteTarget,
+  SimulateSitesResult,
 } from '../api/purge.api';
 import { ApiClientError } from '../api/client';
 
@@ -62,7 +66,7 @@ const DANGER_BORDER = '#fca5a5';
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 type Step    = 'config' | 'preview' | 'done';
-type TabKey  = 'versions' | 'files' | 'recycle';
+type TabKey  = 'versions' | 'files' | 'recycle' | 'sites';
 
 const JOB_POLL_MS  = 3_000;
 const PREVIEW_LIMIT = 200;
@@ -373,7 +377,7 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const rule = buildRule();
     try {
-      const { confirmToken } = await requestPurgeToken('retention_execute', rule);
+      const { confirmToken } = await requestPurgeToken('retention_versions', rule);
       const { jobId }        = await executeVersionRetentionJob(rule, confirmToken);
       setShowModal(false); setModalLoading(false); setStep('done');
       startPolling(jobId);
@@ -633,7 +637,7 @@ function FilesTab({ scanId, sites }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const params = buildParams();
     try {
-      const { confirmToken } = await requestPurgeToken('file_retention_execute', params);
+      const { confirmToken } = await requestPurgeToken('retention_files', params);
       const { jobId }        = await executeFileRetentionJob(params, confirmToken);
       setShowModal(false); setModalLoading(false); setStep('done');
       startPolling(jobId);
@@ -897,7 +901,7 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const params = buildParams();
     try {
-      const { confirmToken } = await requestPurgeToken('recycle_bin_execute', params);
+      const { confirmToken } = await requestPurgeToken('recycle_bin', params);
       const { jobId }        = await executeRecycleBinJob(params, confirmToken);
       setShowModal(false); setModalLoading(false); setStep('done');
       startPolling(jobId);
@@ -1081,6 +1085,275 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  ABA: SITES
+// ═════════════════════════════════════════════════════════════════════════════
+
+function SitesTab({ scanId }: { scanId: string }) {
+  const [search,         setSearch]         = useState('');
+  const [searchPending,  setSearchPending]  = useState('');    // debounce buffer
+  const [simResult,      setSimResult]      = useState<SimulateSitesResult | null>(null);
+  const [simLoading,     setSimLoading]     = useState(false);
+  const [simError,       setSimError]       = useState<string | null>(null);
+  const [selectedIds,    setSelectedIds]    = useState<string[]>([]);
+
+  const [step,         setStep]        = useState<Step>('config');
+  const [showModal,    setShowModal]    = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError,   setModalError]  = useState<string | null>(null);
+
+  const [activeJob, setActiveJob] = useState<JobStatusDetail | null>(null);
+  const [jobError,  setJobError]  = useState<string | null>(null);
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (pollRef.current)    clearInterval(pollRef.current);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  // Dispara busca com debounce de 400ms
+  function handleSearchInput(val: string) {
+    setSearchPending(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearch(val);
+      runSearch(val);
+    }, 400);
+  }
+
+  // Busca imediata (Enter ou botão)
+  function handleSearchSubmit() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearch(searchPending);
+    runSearch(searchPending);
+  }
+
+  async function runSearch(q: string) {
+    if (!scanId) return;
+    setSimResult(null); setSimError(null); setSimLoading(true); setSelectedIds([]);
+    try {
+      const res = await simulateSiteDeletion(scanId, q);
+      setSimResult(res);
+    } catch (err) {
+      setSimError(apiErrMsg(err));
+    } finally {
+      setSimLoading(false);
+    }
+  }
+
+  function toggleSite(siteId: string) {
+    setSelectedIds(prev =>
+      prev.includes(siteId) ? prev.filter(id => id !== siteId) : [...prev, siteId],
+    );
+  }
+
+  function toggleAll() {
+    const all = simResult?.preview ?? [];
+    const allSelected = all.length > 0 && all.every(s => selectedIds.includes(s.siteId));
+    setSelectedIds(allSelected ? [] : all.map(s => s.siteId));
+  }
+
+  // Calcula impacto dos sites selecionados
+  const selectedSites: SiteTarget[] = (simResult?.preview ?? []).filter(s => selectedIds.includes(s.siteId));
+  const selBytes = selectedSites.reduce((acc, s) => acc + (s.totalBytes ?? 0), 0);
+  const selFiles = selectedSites.reduce((acc, s) => acc + (s.filesCount ?? 0), 0);
+
+  async function handleConfirm() {
+    if (selectedIds.length === 0) return;
+    setModalLoading(true); setModalError(null);
+    const params = { scanId, siteIds: selectedIds };
+    try {
+      const { confirmToken } = await requestPurgeToken('retention_sites', params);
+      const { jobId }        = await executeSiteDeleteJob(scanId, selectedIds, confirmToken);
+      setShowModal(false); setModalLoading(false); setStep('done');
+      startPolling(jobId);
+    } catch (err) {
+      setModalError(apiErrMsg(err)); setModalLoading(false);
+    }
+  }
+
+  function startPolling(jobId: string) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    getPurgeJobStatus(jobId).then(j => setActiveJob(j)).catch(() => {});
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await getPurgeJobStatus(jobId);
+        setActiveJob(job);
+        if (TERMINAL_JOB.has(job.status)) { clearInterval(pollRef.current!); pollRef.current = null; }
+      } catch (err) {
+        clearInterval(pollRef.current!); pollRef.current = null;
+        setJobError(apiErrMsg(err));
+      }
+    }, JOB_POLL_MS);
+  }
+
+  const preview = simResult?.preview ?? [];
+  const allSelected = preview.length > 0 && preview.every(s => selectedIds.includes(s.siteId));
+
+  return (
+    <>
+      {showModal && (
+        <ConfirmModal
+          title="Confirmar Exclusão de Sites"
+          summaryLines={[
+            { label: 'Sites a excluir',  value: fmtNum(selectedSites.length) },
+            { label: 'Arquivos totais',  value: fmtNum(selFiles)             },
+            { label: 'Volume estimado',  value: fmtBytes(selBytes)           },
+            { label: 'Sites',            value: selectedSites.slice(0, 3).map(s => s.siteName || s.siteUrl || s.siteId).join(', ') + (selectedSites.length > 3 ? ` +${selectedSites.length - 3}` : '') },
+          ]}
+          warningText="Esta operação moverá os sites para a Lixeira do Administrador do M365. É reversível via Central de Administração do Microsoft 365."
+          onConfirm={handleConfirm}
+          onCancel={() => { setShowModal(false); setModalError(null); }}
+          loading={modalLoading}
+          error={modalError}
+        />
+      )}
+
+      <StepBar step={step} />
+
+      {/* Config / Busca */}
+      <div style={s.configPanel}>
+        <div style={s.panelHeader}><span style={s.panelTitle}>Busca de Sites para Exclusão</span></div>
+        <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+
+          {/* Campo de busca */}
+          <div style={s.fieldGroup}>
+            <label style={s.fieldLabel}>Buscar site por nome ou URL</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={searchPending}
+                onChange={e => handleSearchInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearchSubmit()}
+                placeholder="Ex: marketing, comunicacao, /sites/rh…"
+                style={{ ...s.input, flex: 1 }}
+              />
+              <button style={{ ...s.btn, ...s.btnAccent }} onClick={handleSearchSubmit} disabled={simLoading || !scanId}>
+                {simLoading ? '⏳' : '🔍'} Buscar
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: C.muted }}>
+              Deixe em branco e clique Buscar para listar todos os sites do scan.
+            </div>
+          </div>
+
+          {/* Erro */}
+          {simError && <div style={s.errorMsg}>⚠ {simError}</div>}
+
+          {/* Resultados */}
+          {simResult && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' as const }}>
+                <span style={{ fontSize: 12, color: C.muted }}>
+                  {preview.length === 0
+                    ? 'Nenhum site encontrado.'
+                    : `${preview.length} site${preview.length !== 1 ? 's' : ''} encontrado${preview.length !== 1 ? 's' : ''}${search ? ` para "${search}"` : ''}`}
+                </span>
+                {preview.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button style={{ ...s.btn, ...s.btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={toggleAll}>
+                      {allSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
+                    </button>
+                    {selectedIds.length > 0 && (
+                      <button style={{ ...s.btn, ...s.btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => setSelectedIds([])}>
+                        Limpar seleção ({selectedIds.length})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Tabela de sites */}
+              {preview.length > 0 && (
+                <div style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 4 }}>
+                  <table style={s.table}>
+                    <thead><tr>
+                      <th style={{ ...s.th, width: 36, textAlign: 'center' as const }}>
+                        <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Selecionar / desmarcar tudo" />
+                      </th>
+                      <th style={s.th}>Nome do Site</th>
+                      <th style={s.th}>URL</th>
+                      <th style={{ ...s.th, textAlign: 'right' as const }}>Volume</th>
+                      <th style={{ ...s.th, textAlign: 'right' as const }}>Arquivos</th>
+                      <th style={s.th}>Última modificação</th>
+                    </tr></thead>
+                    <tbody>
+                      {preview.map((site, i) => {
+                        const checked = selectedIds.includes(site.siteId);
+                        return (
+                          <tr
+                            key={site.siteId}
+                            style={{ ...(i % 2 === 0 ? s.trEven : s.trOdd), cursor: 'pointer', background: checked ? '#ebf4ff' : undefined }}
+                            onClick={() => toggleSite(site.siteId)}
+                          >
+                            <td style={{ ...s.td, textAlign: 'center' }}>
+                              <input type="checkbox" checked={checked} onChange={() => toggleSite(site.siteId)} onClick={e => e.stopPropagation()} />
+                            </td>
+                            <td style={s.td}><div style={{ ...s.fileName, maxWidth: 220, fontWeight: checked ? 700 : 400 }}>{site.siteName || '—'}</div></td>
+                            <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{site.siteUrl || '—'}</div></td>
+                            <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' as const }}>{fmtBytes(site.totalBytes)}</td>
+                            <td style={{ ...s.td, textAlign: 'right' }}>{fmtNum(site.filesCount)}</td>
+                            <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(site.lastModified)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Painel de impacto + botão executar */}
+        {selectedIds.length > 0 && step !== 'done' && (
+          <div style={{ ...s.execBar, borderTop: `1px solid ${DANGER_BORDER}`, background: DANGER_BG }}>
+            <div style={{ display: 'flex', gap: 24, flex: 1, flexWrap: 'wrap' as const }}>
+              <div style={s.impactStat}>
+                <span style={{ ...s.impactValue, fontSize: 18 }}>{fmtNum(selectedIds.length)}</span>
+                <span style={s.impactLabel}>Sites selecionados</span>
+              </div>
+              <div style={s.impactStat}>
+                <span style={{ ...s.impactValue, fontSize: 18 }}>{fmtBytes(selBytes)}</span>
+                <span style={s.impactLabel}>Volume total</span>
+              </div>
+              <div style={s.impactStat}>
+                <span style={{ ...s.impactValue, fontSize: 18 }}>{fmtNum(selFiles)}</span>
+                <span style={s.impactLabel}>Arquivos</span>
+              </div>
+            </div>
+            <button
+              style={{ ...s.btn, ...s.btnDanger }}
+              onClick={() => { setModalError(null); setShowModal(true); }}
+            >
+              🗑 Excluir {selectedIds.length} site{selectedIds.length !== 1 ? 's' : ''} selecionado{selectedIds.length !== 1 ? 's' : ''}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Job */}
+      {step === 'done' && (
+        <div style={s.jobPanel}>
+          <div style={s.panelHeader}><span style={s.panelTitle}>Progresso da Exclusão de Sites</span></div>
+          <div style={{ padding: 14 }}>
+            {jobError  && <div style={s.errorMsg}>⚠ {jobError}</div>}
+            {activeJob ? <JobProgress job={activeJob} itemLabel="site" /> : <div style={s.loadingMsg}><span style={s.spinner} /> Iniciando job…</div>}
+            {activeJob && TERMINAL_JOB.has(activeJob.status) && (
+              <div style={{ marginTop: 16 }}>
+                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); setActiveJob(null); setSimResult(null); setSelectedIds([]); }}>
+                  ← Nova Busca
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Props compartilhadas entre abas ─────────────────────────────────────────
 
 interface TabSharedProps {
@@ -1118,6 +1391,7 @@ export default function ExpurgoPage(): React.ReactElement {
     versions: '🔖 Versões',
     files:    '📄 Arquivos',
     recycle:  '🗑 Lixeira',
+    sites:    '🏢 Sites',
   };
 
   return (
@@ -1182,6 +1456,7 @@ export default function ExpurgoPage(): React.ReactElement {
         {scanId && activeTab === 'versions' && <VersionsTab scanId={scanId} sites={sites} summary={summary} />}
         {scanId && activeTab === 'files'    && <FilesTab    scanId={scanId} sites={sites} summary={summary} />}
         {scanId && activeTab === 'recycle'  && <RecycleTab  scanId={scanId} sites={sites} summary={summary} />}
+        {scanId && activeTab === 'sites'    && <SitesTab    scanId={scanId} />}
 
       </div>
     </>

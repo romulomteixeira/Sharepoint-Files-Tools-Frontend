@@ -1,15 +1,19 @@
 /**
- * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla (Sprint 20)
+ * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla (Sprint 20/21)
  *
  * Fluxo obrigatório para qualquer operação destrutiva:
  *   1. POST /api/purge/confirm          → { confirmToken, expiresAt, requestHash }
  *   2. POST /api/<operação>/execute-job  → { jobId }  (requer confirmToken no body)
  *
- * Operações suportadas:
- *   - retention_execute      → /api/retention/execute-job      (retenção de versões)
- *   - file_retention_execute → /api/file-retention/execute-job (expurgo de arquivos)
- *   - recycle_bin_execute    → /api/recycle-bin/execute-job    (limpeza de lixeira)
- *   - retention_sites        → /api/sites/execute-job          (exclusão de sites — Sprint 21)
+ * Operações suportadas (nomes exatos validados pelo backend VALID_OPERATIONS):
+ *   - retention_versions → /api/retention/execute-job      (retenção de versões)
+ *   - retention_files    → /api/file-retention/execute-job (expurgo de arquivos)
+ *   - recycle_bin        → /api/recycle-bin/execute-job    (limpeza de lixeira)
+ *   - retention_sites    → /api/sites/execute-job          (exclusão de sites)
+ *
+ * Formato do body para /api/purge/confirm:
+ *   FLAT: { operation, scanId, ...outrosParams }
+ *   O backend passa o body inteiro como requestParams e faz hash de { operation, scanId, params: cleanRest }
  */
 
 import { post, get } from './client';
@@ -17,10 +21,11 @@ import type { JobStatusDetail } from '../types';
 
 // ─── Tipos de operação ────────────────────────────────────────────────────────
 
+/** Nomes exatos validados pelo backend (purge-confirm.js VALID_OPERATIONS) */
 export type PurgeOperation =
-  | 'retention_execute'
-  | 'file_retention_execute'
-  | 'recycle_bin_execute'
+  | 'retention_versions'
+  | 'retention_files'
+  | 'recycle_bin'
   | 'retention_sites';
 
 // ─── Tipos compartilhados ─────────────────────────────────────────────────────
@@ -134,11 +139,20 @@ export interface SimulateRecycleBinResult {
 
 // ─── Token de confirmação (genérico) ─────────────────────────────────────────
 
+/**
+ * Solicita token de confirmação para qualquer operação de expurgo.
+ *
+ * O body enviado é FLAT: { operation, ...params }
+ * O backend passa o body inteiro como requestParams e faz hash dos campos restantes
+ * após remover operation, scanId, confirmToken, jobId, createdAt.
+ *
+ * Portanto params DEVE conter { scanId, ...outrosParams }.
+ */
 export async function requestPurgeToken(
   operation: PurgeOperation,
   params:    unknown,
 ): Promise<PurgeConfirmToken> {
-  return post<PurgeConfirmToken>('/api/purge/confirm', { operation, params });
+  return post<PurgeConfirmToken>('/api/purge/confirm', { operation, ...(params as Record<string, unknown>) });
 }
 
 // ─── Retenção de versões ──────────────────────────────────────────────────────
@@ -200,6 +214,51 @@ export async function exportRecycleBinBlob(
     { ...params, format },
     `lixeira_sharepoint_${params.scanId}.${format}`,
   );
+}
+
+// ─── Exclusão de sites ────────────────────────────────────────────────────────
+
+export interface SiteTarget {
+  siteId:       string;
+  siteName?:    string;
+  siteUrl?:     string;
+  totalBytes?:  number;
+  filesCount?:  number;
+  lastModified?: string;
+}
+
+export interface SimulateSitesResult {
+  scanId:   string;
+  search:   string;
+  preview:  SiteTarget[];
+  result: {
+    sites:           number;
+    totalBytes:      number;
+    totalBytesHuman: string;
+  };
+}
+
+/**
+ * Busca sites por slug/nome e retorna lista com métricas para seleção.
+ * Body: { scanId, search } — search é string de filtro (pode ser vazio para listar todos).
+ */
+export async function simulateSiteDeletion(
+  scanId: string,
+  search: string,
+): Promise<SimulateSitesResult> {
+  return post<SimulateSitesResult>('/api/sites/simulate', { scanId, search });
+}
+
+/**
+ * Executa exclusão dos sites selecionados via job assíncrono.
+ * Body: { scanId, siteIds, confirmToken }
+ */
+export async function executeSiteDeleteJob(
+  scanId:       string,
+  siteIds:      string[],
+  confirmToken: string,
+): Promise<PurgeJobResult> {
+  return post<PurgeJobResult>('/api/sites/execute-job', { scanId, siteIds, confirmToken });
 }
 
 // ─── Status de job ────────────────────────────────────────────────────────────
