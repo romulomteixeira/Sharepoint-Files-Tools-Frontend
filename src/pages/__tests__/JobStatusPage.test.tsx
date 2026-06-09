@@ -21,6 +21,7 @@ describe("JobStatusPage", () => {
       status: completedJob,
       error: null,
       done: true,
+      transport: "sse",
     }),
   );
 
@@ -43,6 +44,7 @@ describe("JobStatusPage", () => {
       status: { ...completedJob, scanId: undefined },
       error: null,
       done: true,
+      transport: "sse",
     });
     render(
       <MemoryRouter initialEntries={["/jobs/job-123"]}>

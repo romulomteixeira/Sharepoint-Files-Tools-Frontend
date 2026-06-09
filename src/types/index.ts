@@ -92,9 +92,14 @@ export type JobType =
   | 'scan_site'
   | 'scan_drive'
   | 'version_item'
+  | 'versions'
   | 'export_inventory'
   | 'retention_execute'
-  | 'recycle_execute';
+  | 'retention_versions'
+  | 'retention_files'
+  | 'retention_sites'
+  | 'recycle_execute'
+  | 'recycle_bin';
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
