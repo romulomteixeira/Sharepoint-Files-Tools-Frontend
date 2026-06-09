@@ -20,19 +20,25 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 # ─── Stage 2: servir com Nginx ────────────────────────────────────────────────
-FROM nginx:1.28-alpine AS runtime
+# Usamos alpine (não nginx:alpine) para que `apk upgrade` controle também o pacote
+# nginx — na imagem oficial nginx:alpine o nginx é instalado via repo nginx.org e
+# fica fora do alcance do `apk upgrade`, deixando CVEs HIGH sem patch.
+# Alpine 3.23 inclui nginx >= 1.28.3-r3 (corrige CVE-2026-49975 e CVE-2026-9256).
+FROM alpine:3.23 AS runtime
 
-# Aplica todos os patches de segurança disponíveis no Alpine e garante
-# que libxml2 esteja na versão mais recente (corrige CVEs libxml2 em Alpine < 3.21).
+# hadolint ignore=DL3018
+# nginx não tem versão pinada intencionalmente: `apk upgrade` garante patches futuros.
 RUN apk upgrade --no-cache \
-    && rm /etc/nginx/conf.d/default.conf
+    && apk add --no-cache nginx \
+    && rm -f /etc/nginx/http.d/default.conf
 
-# Copiar configuração customizada
-COPY nginx.conf /etc/nginx/conf.d/app.conf
+# No Alpine, vhosts ficam em http.d/ (não conf.d/ como na imagem nginx oficial)
+COPY nginx.conf /etc/nginx/http.d/app.conf
 
 # Copiar assets estáticos do build
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-# Nginx roda em foreground por padrão com CMD herdado da imagem base
+# alpine não herda o CMD da imagem nginx — definir explicitamente
+CMD ["nginx", "-g", "daemon off;"]
