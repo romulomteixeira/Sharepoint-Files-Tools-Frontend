@@ -1,26 +1,34 @@
 /**
- * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla (Sprint 16)
+ * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla (Sprint 20/21)
  *
- * Fluxo obrigatório:
+ * Fluxo obrigatório para qualquer operação destrutiva:
  *   1. POST /api/purge/confirm          → { confirmToken, expiresAt, requestHash }
- *   2. POST /api/retention/execute-job  → { jobId }  (requer confirmToken no body)
+ *   2. POST /api/<operação>/execute-job  → { jobId }  (requer confirmToken no body)
  *
- * O backend valida que os parâmetros de (1) e (2) são idênticos via requestHash.
+ * Operações suportadas (nomes exatos validados pelo backend VALID_OPERATIONS):
+ *   - retention_versions → /api/retention/execute-job      (retenção de versões)
+ *   - retention_files    → /api/file-retention/execute-job (expurgo de arquivos)
+ *   - recycle_bin        → /api/recycle-bin/execute-job    (limpeza de lixeira)
+ *   - retention_sites    → /api/sites/execute-job          (exclusão de sites)
+ *
+ * Formato do body para /api/purge/confirm:
+ *   FLAT: { operation, scanId, ...outrosParams }
+ *   O backend passa o body inteiro como requestParams e faz hash de { operation, scanId, params: cleanRest }
  */
 
 import { post, get } from './client';
 import type { JobStatusDetail } from '../types';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ─── Tipos de operação ────────────────────────────────────────────────────────
 
-export interface PurgeRule {
-  scanId:          string;
-  extensions?:     string[];   // extensões a expurgar
-  olderThanDays?:  number;     // arquivos não modificados há X dias
-  largerThanMb?:   number;     // arquivos maiores que X MB
-  siteId?:         string;     // restringir a um site
-  driveId?:        string;     // restringir a um drive
-}
+/** Nomes exatos validados pelo backend (purge-confirm.js VALID_OPERATIONS) */
+export type PurgeOperation =
+  | 'retention_versions'
+  | 'retention_files'
+  | 'recycle_bin'
+  | 'retention_sites';
+
+// ─── Tipos compartilhados ─────────────────────────────────────────────────────
 
 export interface PurgeConfirmToken {
   confirmToken: string;
@@ -32,37 +40,254 @@ export interface PurgeJobResult {
   jobId: string;
 }
 
-// ─── Funções ──────────────────────────────────────────────────────────────────
-
-/**
- * Solicita token de confirmação.
- * Deve ser chamado imediatamente antes de executePurgeJob com os mesmos params.
- */
-export async function requestPurgeToken(rule: PurgeRule): Promise<PurgeConfirmToken> {
-  return post<PurgeConfirmToken>('/api/purge/confirm', {
-    operation: 'retention_execute',
-    params:    rule,
-  });
+/** Scope para file-retention e recycle-bin */
+export interface ScopeParam {
+  type:      'all' | 'sites';
+  siteIds?:  string[];
 }
 
+// ─── Retenção de versões ──────────────────────────────────────────────────────
+
+export interface VersionRetentionRule {
+  scanId:          string;
+  extensions?:     string[];
+  olderThanDays?:  number;
+  largerThanMb?:   number;
+  siteId?:         string;
+  driveId?:        string;
+}
+
+/** Alias de compatibilidade */
+export type PurgeRule = VersionRetentionRule;
+
+export interface SimulateVersionResult {
+  count:  number;
+  bytes:  number;
+  items?: Array<{
+    fileId?:    string;
+    fileName?:  string;
+    siteId?:    string;
+    driveId?:   string;
+    versionId?: string;
+    sizeBytes?: number;
+    modifiedAt?: string;
+  }>;
+}
+
+// ─── Expurgo de arquivos ──────────────────────────────────────────────────────
+
+export interface FileRetentionParams {
+  scanId:        string;
+  scope?:        ScopeParam;
+  mode?:         'years' | 'date_range';
+  keepYears?:    number;
+  fromDate?:     string | null;
+  toDate?:       string | null;
+  previewLimit?: number;
+}
+
+export interface FileRetentionPreviewItem {
+  name?:       string;
+  siteId?:     string;
+  siteName?:   string;
+  extension?:  string;
+  sizeBytes?:  number;
+  sizeHuman?:  string;
+  modifiedAt?: string;
+  webUrl?:     string;
+}
+
+export interface SimulateFileResult {
+  result: {
+    filesAffected: number;
+    purgeHuman:    string;
+    summary?:      string;
+  };
+  preview: FileRetentionPreviewItem[];
+}
+
+// ─── Limpeza de lixeira ───────────────────────────────────────────────────────
+
+export interface RecycleBinParams {
+  scanId:        string;
+  scope?:        ScopeParam;
+  previewLimit?: number;
+}
+
+export interface RecycleBinPreviewItem {
+  siteId?:    string;
+  siteName?:  string;
+  dirName?:   string;
+  leafName?:  string;
+  title?:     string;
+  deletedAt?: string;
+  sizeBytes?: number;
+  sizeHuman?: string;
+  deletedBy?: string;
+}
+
+export interface SimulateRecycleBinResult {
+  result: {
+    items:           number;
+    purgeHuman:      string;
+    sitesAffected?:  number;
+    failedSites?:    number;
+    summary?:        string;
+  };
+  preview: RecycleBinPreviewItem[];
+}
+
+// ─── Token de confirmação (genérico) ─────────────────────────────────────────
+
 /**
- * Inicia o job de expurgo (requer confirmToken obtido de requestPurgeToken).
- * Retorna { jobId } para polling via getJobStatus().
+ * Solicita token de confirmação para qualquer operação de expurgo.
+ *
+ * O body enviado é FLAT: { operation, ...params }
+ * O backend passa o body inteiro como requestParams e faz hash dos campos restantes
+ * após remover operation, scanId, confirmToken, jobId, createdAt.
+ *
+ * Portanto params DEVE conter { scanId, ...outrosParams }.
  */
-export async function executePurgeJob(
-  rule: PurgeRule,
+export async function requestPurgeToken(
+  operation: PurgeOperation,
+  params:    unknown,
+): Promise<PurgeConfirmToken> {
+  return post<PurgeConfirmToken>('/api/purge/confirm', { operation, ...(params as Record<string, unknown>) });
+}
+
+// ─── Retenção de versões ──────────────────────────────────────────────────────
+
+export async function simulateVersionRetention(rule: VersionRetentionRule): Promise<SimulateVersionResult> {
+  return post<SimulateVersionResult>('/api/retention/simulate', rule);
+}
+
+export async function executeVersionRetentionJob(
+  rule:         VersionRetentionRule,
   confirmToken: string,
 ): Promise<PurgeJobResult> {
-  return post<PurgeJobResult>('/api/retention/execute-job', {
-    ...rule,
-    confirmToken,
-  });
+  return post<PurgeJobResult>('/api/retention/execute-job', { ...rule, confirmToken });
+}
+
+// ─── Expurgo de arquivos ──────────────────────────────────────────────────────
+
+export async function simulateFileRetention(params: FileRetentionParams): Promise<SimulateFileResult> {
+  return post<SimulateFileResult>('/api/file-retention/simulate', params);
+}
+
+export async function executeFileRetentionJob(
+  params:       FileRetentionParams,
+  confirmToken: string,
+): Promise<PurgeJobResult> {
+  return post<PurgeJobResult>('/api/file-retention/execute-job', { ...params, confirmToken });
+}
+
+export async function exportFileRetentionBlob(
+  params: FileRetentionParams,
+  format: 'csv' | 'xlsx' = 'csv',
+): Promise<void> {
+  return postBlobDownload(
+    '/api/file-retention/export',
+    { ...params, format },
+    `expurgo_arquivos_${params.scanId}.${format}`,
+  );
+}
+
+// ─── Limpeza de lixeira ───────────────────────────────────────────────────────
+
+export async function simulateRecycleBin(params: RecycleBinParams): Promise<SimulateRecycleBinResult> {
+  return post<SimulateRecycleBinResult>('/api/recycle-bin/simulate', params);
+}
+
+export async function executeRecycleBinJob(
+  params:       RecycleBinParams,
+  confirmToken: string,
+): Promise<PurgeJobResult> {
+  return post<PurgeJobResult>('/api/recycle-bin/execute-job', { ...params, confirmToken });
+}
+
+export async function exportRecycleBinBlob(
+  params: RecycleBinParams,
+  format: 'csv' | 'xlsx' = 'csv',
+): Promise<void> {
+  return postBlobDownload(
+    '/api/recycle-bin/export',
+    { ...params, format },
+    `lixeira_sharepoint_${params.scanId}.${format}`,
+  );
+}
+
+// ─── Exclusão de sites ────────────────────────────────────────────────────────
+
+export interface SiteTarget {
+  siteId:       string;
+  siteName?:    string;
+  siteUrl?:     string;
+  totalBytes?:  number;
+  filesCount?:  number;
+  lastModified?: string;
+}
+
+export interface SimulateSitesResult {
+  scanId:   string;
+  search:   string;
+  preview:  SiteTarget[];
+  result: {
+    sites:           number;
+    totalBytes:      number;
+    totalBytesHuman: string;
+  };
 }
 
 /**
- * Polling de progresso do job de expurgo.
- * Reutiliza /api/jobs/:jobId/status (mesmo endpoint de qualquer job).
+ * Busca sites por slug/nome e retorna lista com métricas para seleção.
+ * Body: { scanId, search } — search é string de filtro (pode ser vazio para listar todos).
  */
+export async function simulateSiteDeletion(
+  scanId: string,
+  search: string,
+): Promise<SimulateSitesResult> {
+  return post<SimulateSitesResult>('/api/sites/simulate', { scanId, search });
+}
+
+/**
+ * Executa exclusão dos sites selecionados via job assíncrono.
+ * Body: { scanId, siteIds, confirmToken }
+ */
+export async function executeSiteDeleteJob(
+  scanId:       string,
+  siteIds:      string[],
+  confirmToken: string,
+): Promise<PurgeJobResult> {
+  return post<PurgeJobResult>('/api/sites/execute-job', { scanId, siteIds, confirmToken });
+}
+
+// ─── Status de job ────────────────────────────────────────────────────────────
+
 export async function getPurgeJobStatus(jobId: string): Promise<JobStatusDetail> {
   return get<JobStatusDetail>(`/api/jobs/${jobId}/status`);
+}
+
+// ─── Helper interno: download de blob ────────────────────────────────────────
+
+async function postBlobDownload(path: string, body: unknown, fallbackName: string): Promise<void> {
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  const res = await fetch(`${base}${path}`, {
+    method:      'POST',
+    headers:     { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body:        JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Exportação falhou: HTTP ${res.status}`);
+  const blob = await res.blob();
+  const cd    = res.headers.get('content-disposition') ?? '';
+  const match = cd.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
+  const name  = match?.[1]?.trim() || fallbackName;
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
+  a.href     = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
