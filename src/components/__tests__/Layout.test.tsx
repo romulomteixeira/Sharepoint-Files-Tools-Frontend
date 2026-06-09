@@ -1,0 +1,39 @@
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+import Layout from '../Layout';
+import { useAuth } from '../../contexts/AuthContext';
+
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../api/auth.api', () => ({ logout: vi.fn() }));
+
+const mockedUseAuth = vi.mocked(useAuth);
+
+describe('Layout', () => {
+  it('exibe o nome homologado da sessão no rodapé', () => {
+    mockedUseAuth.mockReturnValue({
+      session: {
+        ok: true,
+        username: 'operador@allos.com',
+        displayName: 'Operador QA',
+        role: 'operator',
+      },
+      isAuthenticated: true,
+      loading: false,
+      onLoginSuccess: vi.fn(),
+      onLogout: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<div>Dashboard</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Operador QA')).toHaveAttribute('id', 'currentUserDisplay');
+  });
+});

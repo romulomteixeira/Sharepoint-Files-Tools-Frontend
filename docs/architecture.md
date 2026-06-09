@@ -25,7 +25,18 @@ Layout (sidebar + navegação)
 ├── /                    → DashboardPage
 ├── /scans               → ScansPage
 ├── /jobs/:jobId         → JobStatusPage
+├── /inventory            → InventoryPage (seletor)
 ├── /inventory/:scanId   → InventoryPage
+├── /reports              → ReportsPage
+├── /top-files            → TopFilesPage
+├── /oneration-monitor    → OnerationMonitorPage
+├── /versioned-by-period  → VersionedByPeriodPage
+├── /expurgo              → ExpurgoPage
+├── /logs                 → LogsPage
+├── /audit                → AuditPage
+├── /settings             → SettingsPage
+├── /admin                → AdminPage
+├── /licenses             → LicensesPage
 └── *                    → NotFoundPage
 ```
 
@@ -42,9 +53,9 @@ Toda comunicação com o backend passa por `client.ts`, que fornece:
 - `del<T>(path, body?)` — requisição DELETE
 - `openEventStream(path)` — abre conexão SSE (Server-Sent Events)
 
-### Envelope de resposta padrão
+### Formatos de resposta
 
-O backend retorna sempre:
+Os endpoints modernos usam o envelope:
 
 ```typescript
 {
@@ -55,7 +66,9 @@ O backend retorna sempre:
 }
 ```
 
-O `client.ts` unwrapa esse envelope automaticamente — os consumidores recebem diretamente `T`.
+O `client.ts` também aceita JSON legado sem envelope, conforme os contratos ainda presentes
+no backend homologado. Endpoints de autenticação, configuração, administração e licenças usam
+fetchers próprios porque retornam objetos planos como `{ ok, ... }`.
 
 ### Timeout e erros
 
@@ -92,11 +105,13 @@ const { data, loading, error, refetch } = useApi(fn, deps);
 Hook dedicado para acompanhar jobs via **SSE (Server-Sent Events)**:
 
 ```typescript
-const { status, error, done } = useJobStream(jobId);
+const { status, error, done, transport } = useJobStream(jobId, options);
 ```
 
-- Abre conexão com `/api/jobs/:jobId/stream`
-- Atualiza `status` a cada evento `progress` recebido
+- Abre conexão com o stream SSE configurado pelo domínio
+- Normaliza eventos nomeados e o evento padrão `message` com `type: progress`
+- Faz fallback para polling quando o stream não entrega progresso
+- Expõe o transporte ativo (`sse` ou `polling`)
 - Fecha a conexão automaticamente quando o job atinge status terminal (`completed`, `failed`, `cancelled`)
 - Fecha a conexão quando o componente desmonta (cleanup de `useEffect`)
 

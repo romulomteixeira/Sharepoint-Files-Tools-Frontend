@@ -1,18 +1,20 @@
 /**
  * AuthContext.tsx — Estado global de autenticação (Sprint 11)
  *
- * - Verifica sessão ao montar chamando um endpoint protegido
+ * - Verifica sessão ao montar via endpoint dedicado
  * - Escuta o evento "auth:unauthorized" emitido pelo client.ts (sessão expirada)
- * - Expõe: isAuthenticated, loading, onLoginSuccess, onLogout
+ * - Expõe: sessão, isAuthenticated, loading, onLoginSuccess, onLogout
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { get } from '../api/client';
-import type { Scan } from '../types';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { getSessionInfo } from '../api/settings.api';
+import type { SessionInfo } from '../api/settings.api';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface AuthContextType {
+  /** Dados da sessão autenticada atual */
+  session: SessionInfo | null;
   /** true após verificação de sessão bem-sucedida */
   isAuthenticated: boolean;
   /** true enquanto a verificação inicial de sessão ainda não concluiu */
@@ -30,29 +32,47 @@ const AuthContext = createContext<AuthContextType | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: React.ReactNode }): React.ReactElement {
+  const [session, setSession] = useState<SessionInfo | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Verificação de sessão: tenta um endpoint protegido; 401 = não autenticado
-  useEffect(() => {
-    get<Scan[]>('/api/scans/list')
-      .then(() => setIsAuthenticated(true))
-      .catch(() => setIsAuthenticated(false))
-      .finally(() => setLoading(false));
+  const applySession = useCallback((nextSession: SessionInfo) => {
+    setSession(nextSession.ok ? nextSession : null);
+    setIsAuthenticated(nextSession.ok);
   }, []);
+
+  // Verificação de sessão: usa o contrato dedicado; 401 = não autenticado
+  useEffect(() => {
+    getSessionInfo()
+      .then(applySession)
+      .catch(() => {
+        setSession(null);
+        setIsAuthenticated(false);
+      })
+      .finally(() => setLoading(false));
+  }, [applySession]);
 
   // Escuta eventos de 401 emitidos pelo client.ts (sessão expirada mid-session)
   useEffect(() => {
-    const handler = () => setIsAuthenticated(false);
+    const handler = () => {
+      setSession(null);
+      setIsAuthenticated(false);
+    };
     window.addEventListener('auth:unauthorized', handler);
     return () => window.removeEventListener('auth:unauthorized', handler);
   }, []);
 
-  const onLoginSuccess = () => setIsAuthenticated(true);
-  const onLogout = () => setIsAuthenticated(false);
+  const onLoginSuccess = () => {
+    setIsAuthenticated(true);
+    void getSessionInfo().then(applySession).catch(() => setSession(null));
+  };
+  const onLogout = () => {
+    setSession(null);
+    setIsAuthenticated(false);
+  };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, loading, onLoginSuccess, onLogout }}>
+    <AuthContext.Provider value={{ session, isAuthenticated, loading, onLoginSuccess, onLogout }}>
       {children}
     </AuthContext.Provider>
   );

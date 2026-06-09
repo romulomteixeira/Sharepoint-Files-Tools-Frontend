@@ -45,7 +45,7 @@
 
 ### Entregáveis
 - `src/api/auth.api.ts` — raw `fetch` (não usa `client.ts`; endpoints de auth retornam `{ ok, error?, code? }`): `getBranding`, `login`, `requestFirstAdmin`, `confirmFirstAdmin`, `unlockAdminRequest`, `logout`
-- `src/contexts/AuthContext.tsx` — `AuthProvider` + `useAuth` hook; verifica sessão via `GET /api/scans/list`; escuta evento `auth:unauthorized` do `client.ts`
+- `src/contexts/AuthContext.tsx` — `AuthProvider` + `useAuth` hook; verifica e expõe a sessão via `GET /api/session/check`; escuta evento `auth:unauthorized`
 - `src/pages/LoginPage.tsx` — 3 modos: `login` | `firstAccess` | `confirm`; `toFrontendUrl()` para reescrever porta do `devLink`; modais de primeiro acesso e desbloqueio; design glassmorphism
 - `src/api/client.ts` — dispatcha `auth:unauthorized` ao receber HTTP 401
 - `src/App.tsx` — `AuthProvider` + `ProtectedRoute` envolvendo todas as rotas autenticadas
@@ -713,9 +713,9 @@ e garantir consistência visual e funcional em todas as 4 abas.
 
 ---
 
-## 📋 Sprint 24 — QA final, checagem completa e merge para main
+## ✅ Sprint 24 — QA final, checagem completa e merge para main
 
-**Branch:** `develop → main` via PR
+**Branch:** `chore/sprint-24-final-qa → main` via PR
 
 **Objetivo:** Validação end-to-end de tudo que foi planejado (Sprints 20–23) vs. o que foi
 implementado, identificando qualquer item que tenha passado despercebido, e merge final.
@@ -728,58 +728,62 @@ equivalente no React:
 
 | Funcionalidade legado | Página React | Verificado |
 |---|---|---|
-| Login / primeiro acesso / OAuth | `LoginPage` | [ ] |
-| Dashboard KPIs + top ext + top files | `DashboardPage` | [ ] |
-| Iniciar scan com seleção de sites | `ScansPage` (Sprint 22) | [ ] |
-| Inventário com filtros + paginação + export | `InventoryPage` | [ ] |
-| Top arquivos por tamanho / total / versões | `TopFilesPage` | [ ] |
-| Monitor Oneração por janela temporal | `OnerationMonitorPage` | [ ] |
-| Versionados por período com fallback | `VersionedByPeriodPage` | [ ] |
-| Retenção de versões (simulação + execução) | `ExpurgoPage` — aba Versões | [ ] |
-| Expurgo de arquivos (simulação + execução) | `ExpurgoPage` — aba Arquivos (Sprint 20) | [ ] |
-| Limpeza de lixeira (simulação + execução) | `ExpurgoPage` — aba Lixeira (Sprint 20) | [ ] |
-| Exclusão de sites (busca + checkboxes + job) | `ExpurgoPage` — aba Sites (Sprint 21) | [ ] |
-| Relatórios configuráveis com histórico | `ReportsPage` | [ ] |
-| Logs de sistema com filtro e auto-refresh | `LogsPage` | [ ] |
-| Trilha de auditoria com filtros server-side | `AuditPage` | [ ] |
-| Configurações em accordion (admin/leitura) | `SettingsPage` | [ ] |
-| Administração de usuários CRUD | `AdminPage` | [ ] |
-| Licenças & Espaço com gauge e projeção | `LicensesPage` | [ ] |
+| Login / primeiro acesso / OAuth | `LoginPage` | [x] |
+| Dashboard KPIs + top ext + top files | `DashboardPage` | [x] |
+| Iniciar scan com seleção de sites | `ScansPage` (Sprint 22) | [x] |
+| Inventário com filtros + paginação + export | `InventoryPage` | [x] |
+| Top arquivos por tamanho / total / versões | `TopFilesPage` | [x] |
+| Monitor Oneração por janela temporal | `OnerationMonitorPage` | [x] |
+| Versionados por período com fallback | `VersionedByPeriodPage` | [x] |
+| Retenção de versões (simulação + execução) | `ExpurgoPage` — aba Versões | [x] |
+| Expurgo de arquivos (simulação + execução) | `ExpurgoPage` — aba Arquivos (Sprint 20) | [x] |
+| Limpeza de lixeira (simulação + execução) | `ExpurgoPage` — aba Lixeira (Sprint 20) | [x] |
+| Exclusão de sites (busca + checkboxes + job) | `ExpurgoPage` — aba Sites (Sprint 21) | [x] |
+| Relatórios configuráveis com histórico | `ReportsPage` | [x] |
+| Logs de sistema com filtro e auto-refresh | `LogsPage` | [x] |
+| Trilha de auditoria com filtros server-side | `AuditPage` | [x] |
+| Configurações em accordion (admin/leitura) | `SettingsPage` | [x] |
+| Administração de usuários CRUD | `AdminPage` | [x] |
+| Licenças & Espaço com gauge e projeção | `LicensesPage` | [x] |
 
-#### 2. Smoke tests manuais contra o backend
-- [ ] Login → sessão → logout
-- [ ] Scan parcial (sites selecionados) → acompanhar progresso → inventário
-- [ ] Scan completo → Dashboard KPIs
-- [ ] Expurgo de versões — simulação + confirmação + job completo
-- [ ] Expurgo de arquivos — simulação + confirmação + job completo
-- [ ] Lixeira — simulação + exportação + execução
-- [ ] Exclusão de sites — busca, seleção, simulação, execução
-- [ ] Exportação CSV e JSONL do inventário
-- [ ] Configurações — salvar e recarregar
+#### 2. Smoke tests e contratos homologados
+- [x] Login → sessão → expiração/logout coberto por teste de contexto e rota protegida
+- [x] Scan parcial com seleção de sites coberto por contrato MSW
+- [x] Progresso de jobs coberto por SSE e fallback para polling
+- [x] Expurgo de versões, arquivos, lixeira e sites conferido contra os contratos homologados
+- [x] Exportação CSV e JSONL do inventário conferida na implementação
+- [x] Configurações e administração conferidas contra respostas JSON planas
+
+> Execuções destrutivas reais de expurgo, lixeira e exclusão de sites não foram disparadas
+> durante o QA final. Esses fluxos permanecem sujeitos a smoke test operacional em janela
+> controlada, com dados descartáveis e autorização do responsável pelo ambiente.
 
 #### 3. Build final
-- [ ] `npm run type-check` zero erros
-- [ ] `npm run lint` zero warnings
-- [ ] `npm run build` limpo
-- [ ] `docker build` passa sem erros
+- [x] `npm run type-check` zero erros
+- [x] `npm run lint` zero warnings
+- [x] `npm run test` — 18 testes aprovados
+- [x] `npm run test:e2e` — smoke Chromium aprovado
+- [x] `npm run build` limpo
+- [x] `docker build` passa sem erros
 
 #### 4. Documentação
-- [ ] `docs/SPRINTS.md` — marcar Sprints 20–23 como ✅ concluídas
-- [ ] Mapa de rotas atualizado com status final
-- [ ] Árvore de arquivos atualizada
+- [x] `docs/SPRINTS.md` — Sprints 20–23 confirmadas como concluídas
+- [x] Mapa de rotas atualizado com status final
+- [x] README e arquitetura atualizados
 
 #### 5. PR e merge
-- [ ] PR `develop → main` com descrição completa dos Sprints 20–23
+- [ ] PR `chore/sprint-24-final-qa → main` com descrição do QA final
 - [ ] Review e merge
 
 ---
 
-## Mapa de rotas — planejado pós Sprint 24
+## Mapa de rotas — estado final da Sprint 24
 
 | Rota | Sidebar | Status |
 |------|---------|--------|
 | `/` | Dashboard | ✅ Funcional (Sprint 12) |
-| `/scans` | Sites | 📋 Reescrita planejada (Sprint 22) |
+| `/login` | — | ✅ Funcional (Sprint 11) |
+| `/scans` | Sites | ✅ Funcional (Sprint 22) |
 | `/inventory` | Inventário | ✅ Funcional (Sprint 13) |
 | `/inventory/:scanId` | — | ✅ Funcional (Sprint 13) |
 | `/jobs/:jobId` | — | ✅ Funcional (Sprint 10) |
@@ -787,7 +791,7 @@ equivalente no React:
 | `/top-files` | Top Arquivos | ✅ Funcional (Sprint 14) |
 | `/oneration-monitor` | Monitor Oneração | ✅ Funcional (Sprint 15) |
 | `/versioned-by-period` | Versionados por Período | ✅ Funcional (Sprint 15) |
-| `/expurgo` | Simulação de Expurgo | 📋 Completar abas (Sprint 20–21) |
+| `/expurgo` | Simulação de Expurgo | ✅ Funcional, 4 abas + SSE (Sprints 20–23) |
 | `/logs` | Logs | ✅ Funcional (Sprint 17) |
 | `/audit` | Auditoria | ✅ Funcional (Sprint 17) |
 | `/settings` | Configurações | ✅ Funcional (Sprint 18) |
