@@ -14,13 +14,14 @@
  *   - requestPurgeToken + execute-job com hash validado pelo backend
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi }               from '../hooks/useApi';
 import { listScans }            from '../api/scans.api';
 import { getInventorySummary, getInventorySites, getInventoryFiles } from '../api/inventory.api';
 import {
   requestPurgeToken,
+  simulateVersionRetention,
   executeVersionRetentionJob,
   simulateFileRetention,
   executeFileRetentionJob,
@@ -307,6 +308,7 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError,   setPreviewError]   = useState<string | null>(null);
   const [totalMatches,   setTotalMatches]   = useState(0);
+  const [totalBytes,     setTotalBytes]     = useState(0);
 
   const [showModal,    setShowModal]    = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
@@ -342,30 +344,30 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
 
   const hasRule = !!(filterExt || filterAge || filterSize || filterSite);
 
-  const previewBytes = useMemo(
-    () => previewFiles.reduce((acc, f) => acc + (f.totalBytes ?? 0), 0),
-    [previewFiles],
-  );
-
   async function runPreview() {
     if (!scanId) return;
     setPreviewFiles([]); setPreviewError(null); setPreviewLoading(true); setStep('preview');
     try {
-      const resp = await getInventoryFiles(scanId, {
-        extension: filterExt  || undefined,
-        siteId:    filterSite || undefined,
-        sort:      'size_desc',
-        pageSize:  500,
-      });
-      const cutoff  = filterAge  ? daysAgo(Number(filterAge))             : null;
-      const minBytes = filterSize ? Number(filterSize) * 1024 * 1024       : null;
-      const filtered = resp.items.filter(f => {
-        if (cutoff   && f.modifiedAt && new Date(f.modifiedAt) > cutoff)   return false;
-        if (minBytes && (f.totalBytes ?? 0) < minBytes)                    return false;
+      const rule = buildRule();
+      const [simulation, inventory] = await Promise.all([
+        simulateVersionRetention(rule),
+        getInventoryFiles(scanId, {
+          extension: filterExt  || undefined,
+          siteId:    filterSite || undefined,
+          sort:      'size_desc',
+          pageSize:  500,
+        }),
+      ]);
+      const cutoff   = filterAge  ? daysAgo(Number(filterAge))       : null;
+      const minBytes = filterSize ? Number(filterSize) * 1024 * 1024 : null;
+      const sample = inventory.items.filter(f => {
+        if (cutoff   && f.modifiedAt && new Date(f.modifiedAt) > cutoff) return false;
+        if (minBytes && (f.totalBytes ?? 0) < minBytes) return false;
         return true;
       });
-      setTotalMatches(filtered.length);
-      setPreviewFiles(filtered.slice(0, PREVIEW_LIMIT));
+      setTotalMatches(simulation.count);
+      setTotalBytes(simulation.bytes);
+      setPreviewFiles(sample.slice(0, PREVIEW_LIMIT));
     } catch (err) {
       setPreviewError(apiErrMsg(err));
     } finally {
@@ -407,7 +409,7 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
         <ConfirmModal
           summaryLines={[
             { label: 'Arquivos afetados',  value: fmtNum(totalMatches)    },
-            { label: 'Espaço a liberar',   value: fmtBytes(previewBytes)  },
+            { label: 'Espaço a liberar',   value: fmtBytes(totalBytes)    },
             { label: 'Regras aplicadas',   value: describeRule()          },
           ]}
           warningText="Esta operação é irreversível. As versões excedentes serão removidas permanentemente do SharePoint."
@@ -491,20 +493,19 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
           </div>
           {previewLoading && <div style={s.loadingMsg}><span style={s.spinner} /> Calculando impacto…</div>}
           {previewError  && <div style={s.errorMsg}>⚠ {previewError}</div>}
-          {!previewLoading && previewFiles.length === 0 && !previewError && (
+          {!previewLoading && totalMatches === 0 && !previewError && (
             <div style={s.emptyMsg}>Nenhum arquivo corresponde às regras. Ajuste os filtros e simule novamente.</div>
           )}
-          {previewFiles.length > 0 && (
+          {totalMatches > 0 && (
             <>
               <div style={s.impactBar}>
                 <div style={s.impactStat}><span style={s.impactValue}>{fmtNum(totalMatches)}</span><span style={s.impactLabel}>Arquivos afetados</span></div>
                 <div style={s.impactDivider} />
-                <div style={s.impactStat}><span style={s.impactValue}>{fmtBytes(previewBytes)}</span><span style={s.impactLabel}>Espaço a liberar</span></div>
-                {totalMatches > PREVIEW_LIMIT && (
-                  <><div style={s.impactDivider} /><div style={s.impactNote}>Mostrando {PREVIEW_LIMIT} de {fmtNum(totalMatches)}</div></>
-                )}
+                <div style={s.impactStat}><span style={s.impactValue}>{fmtBytes(totalBytes)}</span><span style={s.impactLabel}>Espaço a liberar</span></div>
+                <div style={s.impactDivider} />
+                <div style={s.impactNote}>Amostra: {fmtNum(previewFiles.length)} de {fmtNum(totalMatches)}</div>
               </div>
-              <div style={{ overflowX: 'auto' }}>
+              {previewFiles.length > 0 && <div style={{ overflowX: 'auto' }}>
                 <table style={s.table}>
                   <thead><tr>
                     <th style={s.th}>Nome</th>
@@ -525,10 +526,10 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
             </>
           )}
-          {previewFiles.length > 0 && step !== 'done' && (
+          {totalMatches > 0 && step !== 'done' && (
             <div style={s.execBar}>
               <div style={s.execWarning}>⚠ Esta operação é <strong>irreversível</strong>.</div>
               <button style={{ ...s.btn, ...s.btnDanger }} onClick={() => { setModalError(null); setShowModal(true); }}>

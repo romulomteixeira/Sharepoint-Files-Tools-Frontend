@@ -46,8 +46,35 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Unit and component tests
+        run: npm test
+
       - name: Build
         run: npm run build
+
+  end-to-end-tests:
+    name: Playwright smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright smoke tests
+        run: npm run test:e2e
 
   dockerfile-lint:
     name: Dockerfile lint
@@ -139,6 +166,7 @@ jobs:
     timeout-minutes: 25
     needs:
       - quality-and-tests
+      - end-to-end-tests
       - dockerfile-lint
       - secrets-scan
       - trivy-repository-scan

@@ -1,7 +1,7 @@
 # SharePoint Monitor — Sprints do Frontend React
 
 > **Repositório:** `romulomteixeira/Sharepoint-Files-Tools-Frontend`
-> **Branch de trabalho:** `feat/react-auth`
+> **Branch de integração:** `develop` (features em branches `feat/sprint-*`)
 > **Stack:** React 18 + TypeScript + Vite 8 + React Router v6
 
 ---
@@ -567,10 +567,10 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
 ### Entregáveis
 
 #### `src/api/purge.api.ts` — extensão
-- `SiteTarget`: `{ siteId: string; siteUrl: string; displayName: string }`
-- `SimulateSitesResult`: `{ sites: SiteTarget[]; totalFiles: number; totalBytes: number }`
-- `simulateSiteDeletion(scanId, siteIds[])` → `POST /api/sites/simulate`
-- `executeSiteDeleteJob(scanId, siteIds[], token)` → `POST /api/sites/execute-job`
+- `SiteTarget`: métricas do site retornadas no preview (`siteId`, nome, URL, bytes, arquivos)
+- `SimulateSitesResult`: `{ scanId, search, preview[], result: { sites, totalBytes, totalBytesHuman } }`
+- `simulateSiteDeletion(scanId, search)` → `POST /api/sites/simulate` para buscar/simular por slug ou nome
+- `executeSiteDeleteJob(scanId, siteIds[], token)` → `POST /api/sites/execute-job` para excluir somente os sites marcados
 
 #### `src/api/scans.api.ts` — extensão
 - `searchSites(search: string, top?: number)` → `GET /api/sites?search=&top=`
@@ -593,6 +593,7 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
 
 ### Checklist de conclusão
 - [x] `simulateSiteDeletion` e `executeSiteDeleteJob` em `purge.api.ts`
+- [x] `searchSites(search, top)` disponível em `scans.api.ts` para reutilização na Sprint 22
 - [x] `SiteTarget` e `SimulateSitesResult` tipados
 - [x] Aba 🏢 Sites com busca por slug/nome, debounce 400ms, checkboxes, painel de impacto, modal CONFIRMAR e job com polling
 - [x] `operation: 'retention_sites'` enviado corretamente ao backend
@@ -601,6 +602,25 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
 - [ ] `npm run lint` zero warnings *(idem)*
 - [ ] `npm run build` limpo *(idem)*
 - [x] Commit `86b0448` + push branch `feat/sprint-21-expurgo-sites`
+
+---
+
+## ✅ Hardening pré-Sprint 22 — correções e testes automatizados
+
+**Objetivo:** Corrigir achados da revisão das Sprints 10–21 antes de iniciar novas funcionalidades.
+
+### Correções
+- `JobStatusPage` usa `status.scanId` no link do inventário e omite o link quando a relação não é informada pelo backend
+- Retenção de versões usa `POST /api/retention/simulate` como fonte dos totais; a tabela local é identificada como amostra
+- `searchSites(search, top)` e os parâmetros `siteIds`/`enableVersioning` foram preparados na API de scans
+- Downloads de expurgo reutilizam o cliente central, incluindo timeout, cookies e tratamento de HTTP 401
+- Timeout HTTP usa `AbortController` e cancela a requisição subjacente
+- README e contratos da Sprint 21 alinhados à implementação atual
+
+### Testes adicionados
+- Vitest + React Testing Library para unidades e componentes
+- MSW para contratos das APIs de scans e expurgo
+- Playwright para smoke tests de autenticação no navegador
 
 ---
 

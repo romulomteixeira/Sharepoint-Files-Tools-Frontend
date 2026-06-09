@@ -90,8 +90,8 @@ export default function JobStatusPage(): React.ReactElement {
       {done && status?.status === 'completed' && (
         <div style={styles.successBanner}>
           ✓ Job concluído com sucesso!{' '}
-          {status.type.startsWith('scan') && (
-            <Link to={`/inventory/${jobId}`} style={styles.bannerLink}>Ver Inventário →</Link>
+          {status.type.startsWith('scan') && status.scanId && (
+            <Link to={`/inventory/${status.scanId}`} style={styles.bannerLink}>Ver Inventário →</Link>
           )}
         </div>
       )}

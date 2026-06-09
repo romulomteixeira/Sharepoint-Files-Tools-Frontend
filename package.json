@@ -2,13 +2,18 @@
   "name": "sharepoint-monitor-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Frontend React/TypeScript do SharePoint Monitor — Sprint 10",
+  "description": "Frontend React/TypeScript do SharePoint Monitor",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -25,6 +30,14 @@
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.5",
     "typescript": "^5.4.5",
-    "vite": "^8.0.14"
+    "vite": "^8.0.14",
+    "@playwright/test": "^1.56.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitest/coverage-v8": "^4.0.0",
+    "jsdom": "^27.0.0",
+    "msw": "^2.11.0",
+    "vitest": "^4.0.0"
   }
 }

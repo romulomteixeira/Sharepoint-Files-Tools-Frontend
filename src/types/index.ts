@@ -106,6 +106,7 @@ export interface Job {
 
 export interface JobStatusDetail {
   jobId: string;
+  scanId?: string;
   type: JobType;
   status: JobStatus;
   progress: {

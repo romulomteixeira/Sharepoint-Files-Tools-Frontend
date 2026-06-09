@@ -50,9 +50,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
 
   if (!res.ok) {
     // Sinaliza sessão expirada — AuthContext escuta e redireciona para /login
-    if (res.status === 401) {
-      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-    }
+    notifyUnauthorized(res);
 
     let errorBody: ApiResponse | null = null;
     try {
@@ -88,14 +86,41 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return (await res.text()) as unknown as T;
 }
 
-function withTimeout(promise: Promise<Response>, ms: number): Promise<Response> {
-  return new Promise<Response>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new ApiClientError('TIMEOUT', `Request excedeu ${ms}ms`)), ms);
-    promise.then(
-      (res) => { clearTimeout(timer); resolve(res); },
-      (err) => { clearTimeout(timer); reject(err); },
-    );
-  });
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  ms = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const externalSignal = init.signal;
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
+
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ms);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (timedOut) {
+      throw new ApiClientError('TIMEOUT', `Request excedeu ${ms}ms`);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', abortFromExternal);
+  }
+}
+
+function notifyUnauthorized(res: Response): void {
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+  }
 }
 
 // ─── Métodos públicos ─────────────────────────────────────────────────────────
@@ -105,15 +130,12 @@ export async function get<T>(
   params?: Record<string, string | number | boolean | undefined | null>,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await withTimeout(
-    fetch(buildUrl(path, params), {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
-      credentials: 'include',
-      ...options,
-    }),
-    DEFAULT_TIMEOUT_MS,
-  );
+  const res = await fetchWithTimeout(buildUrl(path, params), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
+    credentials: 'include',
+    ...options,
+  });
   return parseResponse<T>(res);
 }
 
@@ -122,16 +144,13 @@ export async function post<T>(
   body?: unknown,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await withTimeout(
-    fetch(buildUrl(path), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
-      credentials: 'include',
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      ...options,
-    }),
-    DEFAULT_TIMEOUT_MS,
-  );
+  const res = await fetchWithTimeout(buildUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
+    credentials: 'include',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...options,
+  });
   return parseResponse<T>(res);
 }
 
@@ -140,17 +159,45 @@ export async function del<T>(
   body?: unknown,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await withTimeout(
-    fetch(buildUrl(path), {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
-      credentials: 'include',
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      ...options,
-    }),
-    DEFAULT_TIMEOUT_MS,
-  );
+  const res = await fetchWithTimeout(buildUrl(path), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
+    credentials: 'include',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...options,
+  });
   return parseResponse<T>(res);
+}
+
+export interface BlobDownload {
+  blob: Blob;
+  filename: string | null;
+}
+
+/** Executa POST autenticado e retorna um blob para download. */
+export async function postBlob(
+  path: string,
+  body?: unknown,
+  options?: RequestInit,
+): Promise<BlobDownload> {
+  const res = await fetchWithTimeout(buildUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
+    credentials: 'include',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...options,
+  });
+
+  if (!res.ok) {
+    await parseResponse<never>(res);
+  }
+
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
+  return {
+    blob: await res.blob(),
+    filename: match?.[1]?.trim() ?? null,
+  };
 }
 
 /**
