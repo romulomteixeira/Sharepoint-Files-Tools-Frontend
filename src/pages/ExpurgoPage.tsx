@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi }               from '../hooks/useApi';
+import { useJobStream }         from '../hooks/useJobStream';
 import { listScans }            from '../api/scans.api';
 import { getInventorySummary, getInventorySites, getInventoryFiles } from '../api/inventory.api';
 import {
@@ -69,7 +70,6 @@ const DANGER_BORDER = '#fca5a5';
 type Step    = 'config' | 'preview' | 'done';
 type TabKey  = 'versions' | 'files' | 'recycle' | 'sites';
 
-const JOB_POLL_MS  = 3_000;
 const PREVIEW_LIMIT = 200;
 const TERMINAL_JOB  = new Set(['completed', 'failed', 'cancelled']);
 
@@ -117,6 +117,53 @@ function apiErrMsg(err: unknown): string {
   return err instanceof ApiClientError ? err.message
     : err instanceof Error              ? err.message
     : 'Erro desconhecido';
+}
+
+function isExpiredTokenError(err: unknown): boolean {
+  if (!(err instanceof ApiClientError)) return false;
+  return /token.*expir|expir.*token|confirm.*expir/i.test(`${err.code} ${err.message}`);
+}
+
+async function executeWithPurgeToken<T>(
+  operation: Parameters<typeof requestPurgeToken>[0],
+  params: unknown,
+  execute: (confirmToken: string) => Promise<T>,
+): Promise<T> {
+  let { confirmToken } = await requestPurgeToken(operation, params);
+  try {
+    return await execute(confirmToken);
+  } catch (err) {
+    if (!isExpiredTokenError(err)) throw err;
+    ({ confirmToken } = await requestPurgeToken(operation, params));
+    return execute(confirmToken);
+  }
+}
+
+interface TabJobActivity {
+  jobId: string | null;
+  status: JobStatusDetail | null;
+  active: boolean;
+}
+
+function usePurgeJobMonitor(onActivity: (activity: TabJobActivity) => void) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const activityRef = useRef(onActivity);
+  activityRef.current = onActivity;
+  const stream = useJobStream(jobId, { getStatus: getPurgeJobStatus });
+
+  useEffect(() => {
+    activityRef.current({
+      jobId,
+      status: stream.status,
+      active: Boolean(jobId && !stream.done),
+    });
+  }, [jobId, stream.status, stream.done]);
+
+  return {
+    ...stream,
+    start: (nextJobId: string) => setJobId(nextJobId),
+    reset: () => setJobId(null),
+  };
 }
 
 // ─── ConfirmModal (genérico) ──────────────────────────────────────────────────
@@ -195,13 +242,14 @@ function JobProgress({ job, itemLabel = 'arquivo' }: { job: JobStatusDetail; ite
   const failed    = job.progress.failed    || 0;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const isDone    = job.status === 'completed';
-  const isFailed  = job.status === 'failed' || job.status === 'cancelled';
+  const isCancelled = job.status === 'cancelled';
+  const isFailed  = job.status === 'failed' || isCancelled;
   return (
     <div style={jp.wrap}>
       <div style={jp.header}>
         <span style={jp.title}>Job de Expurgo</span>
         <span style={{ ...jp.badge, background: isDone ? '#d1fae5' : isFailed ? '#fee2e2' : '#dbeafe', color: isDone ? '#065f46' : isFailed ? '#991b1b' : '#1e40af' }}>
-          {isDone ? '✓ Concluído' : isFailed ? '✗ Falhou' : '⏳ Em andamento'}
+          {isDone ? '✓ Concluído' : isCancelled ? 'Cancelado' : isFailed ? '✗ Falhou' : '⏳ Em andamento'}
         </span>
       </div>
       <div style={jp.barTrack}>
@@ -221,7 +269,10 @@ function JobProgress({ job, itemLabel = 'arquivo' }: { job: JobStatusDetail; ite
         </div>
       )}
       {isFailed && (
-        <div style={jp.failedMsg}>✗ Job {job.status}.{job.lastError ? ` Erro: ${job.lastError}` : ''}</div>
+        <div style={jp.failedMsg}>
+          {isCancelled ? 'Job cancelado.' : `✗ Job ${job.status}.`}
+          {job.lastError ? ` Erro: ${job.lastError}` : ''}
+        </div>
       )}
     </div>
   );
@@ -297,7 +348,7 @@ function StepBar({ step }: { step: Step }) {
 //  ABA: VERSÕES
 // ═════════════════════════════════════════════════════════════════════════════
 
-function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
+function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) {
   const [step,        setStep]        = useState<Step>('config');
   const [filterExt,   setFilterExt]   = useState('');
   const [filterAge,   setFilterAge]   = useState('');
@@ -314,11 +365,8 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError,   setModalError]   = useState<string | null>(null);
 
-  const [activeJob, setActiveJob] = useState<JobStatusDetail | null>(null);
-  const [jobError,  setJobError]  = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const { status: activeJob, error: jobError, transport, start: startJob, reset: resetJob } =
+    usePurgeJobMonitor(onJobActivity);
 
   function buildRule(): VersionRetentionRule {
     return {
@@ -380,28 +428,16 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const rule = buildRule();
     try {
-      const { confirmToken } = await requestPurgeToken('retention_versions', rule);
-      const { jobId }        = await executeVersionRetentionJob(rule, confirmToken);
+      const { jobId } = await executeWithPurgeToken(
+        'retention_versions',
+        rule,
+        (confirmToken) => executeVersionRetentionJob(rule, confirmToken),
+      );
       setShowModal(false); setModalLoading(false); setStep('done');
-      startPolling(jobId);
+      startJob(jobId);
     } catch (err) {
       setModalError(apiErrMsg(err)); setModalLoading(false);
     }
-  }
-
-  function startPolling(jobId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    getPurgeJobStatus(jobId).then(j => setActiveJob(j)).catch(() => {});
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await getPurgeJobStatus(jobId);
-        setActiveJob(job);
-        if (TERMINAL_JOB.has(job.status)) { clearInterval(pollRef.current!); pollRef.current = null; }
-      } catch (err) {
-        clearInterval(pollRef.current!); pollRef.current = null;
-        setJobError(apiErrMsg(err));
-      }
-    }, JOB_POLL_MS);
   }
 
   return (
@@ -547,10 +583,11 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
           <div style={s.panelHeader}><span style={s.panelTitle}>Progresso do Expurgo</span></div>
           <div style={{ padding: 14 }}>
             {jobError   && <div style={s.errorMsg}>⚠ {jobError}</div>}
+            {transport === 'polling' && <div style={s.fallbackMsg}>Atualização em modo de contingência (polling).</div>}
             {activeJob  ? <JobProgress job={activeJob} itemLabel="arquivo" /> : <div style={s.loadingMsg}><span style={s.spinner} /> Iniciando job…</div>}
             {activeJob && TERMINAL_JOB.has(activeJob.status) && (
               <div style={{ marginTop: 16 }}>
-                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); setActiveJob(null); setPreviewFiles([]); }}>
+                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); resetJob(); setPreviewFiles([]); }}>
                   ← Novo Expurgo
                 </button>
               </div>
@@ -566,7 +603,7 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
 //  ABA: ARQUIVOS
 // ═════════════════════════════════════════════════════════════════════════════
 
-function FilesTab({ scanId, sites }: TabSharedProps) {
+function FilesTab({ scanId, sites, onJobActivity }: TabSharedProps) {
   const [step,           setStep]          = useState<Step>('config');
   const [scopeType,      setScopeType]     = useState<'all' | 'sites'>('all');
   const [selectedSites,  setSelectedSites] = useState<string[]>([]);
@@ -584,11 +621,8 @@ function FilesTab({ scanId, sites }: TabSharedProps) {
   const [modalError,   setModalError]   = useState<string | null>(null);
   const [exporting,    setExporting]    = useState(false);
 
-  const [activeJob, setActiveJob] = useState<JobStatusDetail | null>(null);
-  const [jobError,  setJobError]  = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const { status: activeJob, error: jobError, transport, start: startJob, reset: resetJob } =
+    usePurgeJobMonitor(onJobActivity);
 
   function buildParams(): FileRetentionParams {
     const scope: ScopeParam = scopeType === 'sites'
@@ -639,28 +673,16 @@ function FilesTab({ scanId, sites }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const params = buildParams();
     try {
-      const { confirmToken } = await requestPurgeToken('retention_files', params);
-      const { jobId }        = await executeFileRetentionJob(params, confirmToken);
+      const { jobId } = await executeWithPurgeToken(
+        'retention_files',
+        params,
+        (confirmToken) => executeFileRetentionJob(params, confirmToken),
+      );
       setShowModal(false); setModalLoading(false); setStep('done');
-      startPolling(jobId);
+      startJob(jobId);
     } catch (err) {
       setModalError(apiErrMsg(err)); setModalLoading(false);
     }
-  }
-
-  function startPolling(jobId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    getPurgeJobStatus(jobId).then(j => setActiveJob(j)).catch(() => {});
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await getPurgeJobStatus(jobId);
-        setActiveJob(job);
-        if (TERMINAL_JOB.has(job.status)) { clearInterval(pollRef.current!); pollRef.current = null; }
-      } catch (err) {
-        clearInterval(pollRef.current!); pollRef.current = null;
-        setJobError(apiErrMsg(err));
-      }
-    }, JOB_POLL_MS);
   }
 
   const affected = simResult?.result.filesAffected ?? 0;
@@ -832,10 +854,11 @@ function FilesTab({ scanId, sites }: TabSharedProps) {
           <div style={s.panelHeader}><span style={s.panelTitle}>Progresso do Expurgo de Arquivos</span></div>
           <div style={{ padding: 14 }}>
             {jobError  && <div style={s.errorMsg}>⚠ {jobError}</div>}
+            {transport === 'polling' && <div style={s.fallbackMsg}>Atualização em modo de contingência (polling).</div>}
             {activeJob ? <JobProgress job={activeJob} itemLabel="arquivo" /> : <div style={s.loadingMsg}><span style={s.spinner} /> Iniciando job…</div>}
             {activeJob && TERMINAL_JOB.has(activeJob.status) && (
               <div style={{ marginTop: 16 }}>
-                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); setActiveJob(null); setSimResult(null); }}>
+                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); resetJob(); setSimResult(null); }}>
                   ← Novo Expurgo
                 </button>
               </div>
@@ -851,7 +874,7 @@ function FilesTab({ scanId, sites }: TabSharedProps) {
 //  ABA: LIXEIRA
 // ═════════════════════════════════════════════════════════════════════════════
 
-function RecycleTab({ scanId, sites }: TabSharedProps) {
+function RecycleTab({ scanId, sites, onJobActivity }: TabSharedProps) {
   const [step,          setStep]         = useState<Step>('config');
   const [scopeType,     setScopeType]    = useState<'all' | 'sites'>('all');
   const [selectedSites, setSelectedSites]= useState<string[]>([]);
@@ -865,11 +888,8 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
   const [modalError,   setModalError]  = useState<string | null>(null);
   const [exporting,    setExporting]   = useState(false);
 
-  const [activeJob, setActiveJob] = useState<JobStatusDetail | null>(null);
-  const [jobError,  setJobError]  = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const { status: activeJob, error: jobError, transport, start: startJob, reset: resetJob } =
+    usePurgeJobMonitor(onJobActivity);
 
   function buildParams(): RecycleBinParams {
     const scope: ScopeParam = scopeType === 'sites'
@@ -903,28 +923,16 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
     setModalLoading(true); setModalError(null);
     const params = buildParams();
     try {
-      const { confirmToken } = await requestPurgeToken('recycle_bin', params);
-      const { jobId }        = await executeRecycleBinJob(params, confirmToken);
+      const { jobId } = await executeWithPurgeToken(
+        'recycle_bin',
+        params,
+        (confirmToken) => executeRecycleBinJob(params, confirmToken),
+      );
       setShowModal(false); setModalLoading(false); setStep('done');
-      startPolling(jobId);
+      startJob(jobId);
     } catch (err) {
       setModalError(apiErrMsg(err)); setModalLoading(false);
     }
-  }
-
-  function startPolling(jobId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    getPurgeJobStatus(jobId).then(j => setActiveJob(j)).catch(() => {});
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await getPurgeJobStatus(jobId);
-        setActiveJob(job);
-        if (TERMINAL_JOB.has(job.status)) { clearInterval(pollRef.current!); pollRef.current = null; }
-      } catch (err) {
-        clearInterval(pollRef.current!); pollRef.current = null;
-        setJobError(apiErrMsg(err));
-      }
-    }, JOB_POLL_MS);
   }
 
   const items       = simResult?.result.items       ?? 0;
@@ -1072,10 +1080,11 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
           <div style={s.panelHeader}><span style={s.panelTitle}>Progresso da Limpeza</span></div>
           <div style={{ padding: 14 }}>
             {jobError  && <div style={s.errorMsg}>⚠ {jobError}</div>}
+            {transport === 'polling' && <div style={s.fallbackMsg}>Atualização em modo de contingência (polling).</div>}
             {activeJob ? <JobProgress job={activeJob} itemLabel="item" /> : <div style={s.loadingMsg}><span style={s.spinner} /> Iniciando job…</div>}
             {activeJob && TERMINAL_JOB.has(activeJob.status) && (
               <div style={{ marginTop: 16 }}>
-                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); setActiveJob(null); setSimResult(null); }}>
+                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); resetJob(); setSimResult(null); }}>
                   ← Nova Limpeza
                 </button>
               </div>
@@ -1091,7 +1100,13 @@ function RecycleTab({ scanId, sites }: TabSharedProps) {
 //  ABA: SITES
 // ═════════════════════════════════════════════════════════════════════════════
 
-function SitesTab({ scanId }: { scanId: string }) {
+function SitesTab({
+  scanId,
+  onJobActivity,
+}: {
+  scanId: string;
+  onJobActivity: (activity: TabJobActivity) => void;
+}) {
   const [search,         setSearch]         = useState('');
   const [searchPending,  setSearchPending]  = useState('');    // debounce buffer
   const [simResult,      setSimResult]      = useState<SimulateSitesResult | null>(null);
@@ -1104,13 +1119,11 @@ function SitesTab({ scanId }: { scanId: string }) {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError,   setModalError]  = useState<string | null>(null);
 
-  const [activeJob, setActiveJob] = useState<JobStatusDetail | null>(null);
-  const [jobError,  setJobError]  = useState<string | null>(null);
-  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { status: activeJob, error: jobError, transport, start: startJob, reset: resetJob } =
+    usePurgeJobMonitor(onJobActivity);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
-    if (pollRef.current)    clearInterval(pollRef.current);
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
@@ -1166,28 +1179,16 @@ function SitesTab({ scanId }: { scanId: string }) {
     setModalLoading(true); setModalError(null);
     const params = { scanId, siteIds: selectedIds };
     try {
-      const { confirmToken } = await requestPurgeToken('retention_sites', params);
-      const { jobId }        = await executeSiteDeleteJob(scanId, selectedIds, confirmToken);
+      const { jobId } = await executeWithPurgeToken(
+        'retention_sites',
+        params,
+        (confirmToken) => executeSiteDeleteJob(scanId, selectedIds, confirmToken),
+      );
       setShowModal(false); setModalLoading(false); setStep('done');
-      startPolling(jobId);
+      startJob(jobId);
     } catch (err) {
       setModalError(apiErrMsg(err)); setModalLoading(false);
     }
-  }
-
-  function startPolling(jobId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    getPurgeJobStatus(jobId).then(j => setActiveJob(j)).catch(() => {});
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await getPurgeJobStatus(jobId);
-        setActiveJob(job);
-        if (TERMINAL_JOB.has(job.status)) { clearInterval(pollRef.current!); pollRef.current = null; }
-      } catch (err) {
-        clearInterval(pollRef.current!); pollRef.current = null;
-        setJobError(apiErrMsg(err));
-      }
-    }, JOB_POLL_MS);
   }
 
   const preview = simResult?.preview ?? [];
@@ -1341,10 +1342,11 @@ function SitesTab({ scanId }: { scanId: string }) {
           <div style={s.panelHeader}><span style={s.panelTitle}>Progresso da Exclusão de Sites</span></div>
           <div style={{ padding: 14 }}>
             {jobError  && <div style={s.errorMsg}>⚠ {jobError}</div>}
+            {transport === 'polling' && <div style={s.fallbackMsg}>Atualização em modo de contingência (polling).</div>}
             {activeJob ? <JobProgress job={activeJob} itemLabel="site" /> : <div style={s.loadingMsg}><span style={s.spinner} /> Iniciando job…</div>}
             {activeJob && TERMINAL_JOB.has(activeJob.status) && (
               <div style={{ marginTop: 16 }}>
-                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); setActiveJob(null); setSimResult(null); setSelectedIds([]); }}>
+                <button style={{ ...s.btn, ...s.btnAccent }} onClick={() => { setStep('config'); resetJob(); setSimResult(null); setSelectedIds([]); }}>
                   ← Nova Busca
                 </button>
               </div>
@@ -1362,6 +1364,7 @@ interface TabSharedProps {
   scanId:  string;
   sites:   SiteRollup[];
   summary: InventorySummary | null;
+  onJobActivity: (activity: TabJobActivity) => void;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1372,6 +1375,18 @@ export default function ExpurgoPage(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<TabKey>('versions');
   const [scanId,    setScanId]    = useState('');
   const [sites,     setSites]     = useState<SiteRollup[]>([]);
+  const [jobActivity, setJobActivity] = useState<Record<TabKey, TabJobActivity>>({
+    versions: { jobId: null, status: null, active: false },
+    files: { jobId: null, status: null, active: false },
+    recycle: { jobId: null, status: null, active: false },
+    sites: { jobId: null, status: null, active: false },
+  });
+  const [tabEpochs, setTabEpochs] = useState<Record<TabKey, number>>({
+    versions: 0,
+    files: 0,
+    recycle: 0,
+    sites: 0,
+  });
 
   const { data: scans, loading: scansLoading } = useApi(listScans, []);
   const completedScans = (scans ?? []).filter(sc => sc.status === 'completed');
@@ -1383,6 +1398,12 @@ export default function ExpurgoPage(): React.ReactElement {
 
   useEffect(() => {
     setSites([]);
+    setJobActivity({
+      versions: { jobId: null, status: null, active: false },
+      files: { jobId: null, status: null, active: false },
+      recycle: { jobId: null, status: null, active: false },
+      sites: { jobId: null, status: null, active: false },
+    });
     if (!scanId) return;
     getInventorySites(scanId, { pageSize: 500 })
       .then(r => setSites(r.items))
@@ -1395,6 +1416,17 @@ export default function ExpurgoPage(): React.ReactElement {
     recycle:  '🗑 Lixeira',
     sites:    '🏢 Sites',
   };
+
+  function updateJobActivity(tab: TabKey, activity: TabJobActivity): void {
+    setJobActivity((current) => ({ ...current, [tab]: activity }));
+  }
+
+  function changeTab(tab: TabKey): void {
+    if (!jobActivity[tab].active) {
+      setTabEpochs((current) => ({ ...current, [tab]: current[tab] + 1 }));
+    }
+    setActiveTab(tab);
+  }
 
   return (
     <>
@@ -1442,9 +1474,10 @@ export default function ExpurgoPage(): React.ReactElement {
                 ...s.tabBtn,
                 ...(activeTab === tab ? s.tabBtnActive : {}),
               }}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => changeTab(tab)}
             >
               {TAB_LABELS[tab]}
+              {jobActivity[tab].active && <span style={s.tabJobBadge}>Ativo</span>}
             </button>
           ))}
         </div>
@@ -1454,11 +1487,45 @@ export default function ExpurgoPage(): React.ReactElement {
           <div style={s.warnBox}>Selecione um scan concluído acima para habilitar as simulações.</div>
         )}
 
-        {/* Conteúdo da aba ativa */}
-        {scanId && activeTab === 'versions' && <VersionsTab key={scanId} scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'files'    && <FilesTab    key={scanId} scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'recycle'  && <RecycleTab  key={scanId} scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'sites'    && <SitesTab    key={scanId} scanId={scanId} />}
+        {/* As abas permanecem montadas para preservar jobs em andamento. */}
+        {scanId && (
+          <>
+            <div style={{ display: activeTab === 'versions' ? 'block' : 'none' }}>
+              <VersionsTab
+                key={`${scanId}-versions-${tabEpochs.versions}`}
+                scanId={scanId}
+                sites={sites}
+                summary={summary}
+                onJobActivity={(activity) => updateJobActivity('versions', activity)}
+              />
+            </div>
+            <div style={{ display: activeTab === 'files' ? 'block' : 'none' }}>
+              <FilesTab
+                key={`${scanId}-files-${tabEpochs.files}`}
+                scanId={scanId}
+                sites={sites}
+                summary={summary}
+                onJobActivity={(activity) => updateJobActivity('files', activity)}
+              />
+            </div>
+            <div style={{ display: activeTab === 'recycle' ? 'block' : 'none' }}>
+              <RecycleTab
+                key={`${scanId}-recycle-${tabEpochs.recycle}`}
+                scanId={scanId}
+                sites={sites}
+                summary={summary}
+                onJobActivity={(activity) => updateJobActivity('recycle', activity)}
+              />
+            </div>
+            <div style={{ display: activeTab === 'sites' ? 'block' : 'none' }}>
+              <SitesTab
+                key={`${scanId}-sites-${tabEpochs.sites}`}
+                scanId={scanId}
+                onJobActivity={(activity) => updateJobActivity('sites', activity)}
+              />
+            </div>
+          </>
+        )}
 
       </div>
     </>
@@ -1502,6 +1569,10 @@ const s: Record<string, React.CSSProperties> = {
   },
   tabBtnActive: {
     background: C.accent, color: '#fff',
+  },
+  tabJobBadge: {
+    marginLeft: 7, padding: '1px 6px', borderRadius: 10,
+    background: '#dbeafe', color: '#1e40af', fontSize: 9, fontWeight: 800,
   },
 
   stepper: {
@@ -1610,6 +1681,7 @@ const s: Record<string, React.CSSProperties> = {
   loadingMsg: { display: 'flex', alignItems: 'center', gap: 8, padding: '24px 14px', color: C.muted, fontSize: 13 },
   emptyMsg:   { padding: '32px 14px', textAlign: 'center', color: C.muted, fontSize: 13 },
   errorMsg:   { padding: '14px', color: C.bad, fontSize: 13, fontWeight: 600 },
+  fallbackMsg:{ padding: '6px 14px', color: C.warn, fontSize: 11, fontWeight: 600 },
 
   spinner: {
     display: 'inline-block', width: 12, height: 12,

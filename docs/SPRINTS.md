@@ -673,7 +673,7 @@ seleção de sites do Sprint 8 do backend.
 
 ---
 
-## 📋 Sprint 23 — SSE no ExpurgoPage + consolidação geral
+## ✅ Sprint 23 — SSE no ExpurgoPage + consolidação geral
 
 **Branch:** `feat/sprint-23-sse-expurgo`
 **Objetivo:** Cobrir GAP 4 — substituir polling por streaming real-time no ExpurgoPage,
@@ -698,15 +698,18 @@ e garantir consistência visual e funcional em todas as 4 abas.
 - Verificar edge cases: token expirado (reemitir token), job cancelado, job com status `error`
 
 ### Checklist de conclusão
-- [ ] `useJobStream` funciona para todas as 4 abas
-- [ ] Polling removido do ExpurgoPage
-- [ ] Fallback de polling implementado
-- [ ] Badge de "job ativo" na aba correspondente
-- [ ] Edge cases de token expirado e job cancelado tratados
-- [ ] `npm run type-check` zero erros
-- [ ] `npm run lint` zero warnings
-- [ ] `npm run build` limpo
-- [ ] Commit + push + PR para `develop`
+- [x] `useJobStream` funciona para todas as 4 abas
+- [x] Contrato SSE homologado (`message` com `type: progress`) normalizado
+- [x] Polling duplicado removido do ExpurgoPage
+- [x] Fallback de polling recursivo implementado após 5 s
+- [x] Badge de "job ativo" na aba correspondente
+- [x] Jobs permanecem monitorados ao trocar de aba
+- [x] Token expirado é reemitido uma vez automaticamente
+- [x] Job cancelado é tratado separadamente de falha
+- [x] `npm run type-check` zero erros
+- [x] `npm run lint` zero warnings
+- [x] `npm run test` — 15 testes aprovados
+- [x] `npm run build` limpo
 
 ---
 
