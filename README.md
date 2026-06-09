@@ -22,9 +22,17 @@ Browser → Nginx :3000
 | Tela | Rota | O que faz |
 |---|---|---|
 | Dashboard | `/` | Resumo do último scan: sites, drives, arquivos e volume total |
-| Scans | `/scans` | Lista todos os scans e inicia novos |
+| Sites e scans | `/scans` | Busca e seleciona sites, inicia scans parciais ou completos |
 | Progresso | `/jobs/:jobId` | Acompanha em tempo real o andamento de um job via SSE |
-| Inventário | `/inventory/:scanId` | Navega pelos arquivos de um scan com paginação por cursor |
+| Inventário | `/inventory`, `/inventory/:scanId` | Filtra, pagina e exporta arquivos em CSV ou JSONL |
+| Relatórios | `/reports` | Configura exportações e consulta o histórico |
+| Top arquivos | `/top-files` | Compara maiores arquivos, volume total e versões |
+| Oneração | `/oneration-monitor` | Analisa crescimento por janela temporal |
+| Versionados | `/versioned-by-period` | Consolida versões por dia, semana ou mês |
+| Expurgo | `/expurgo` | Simula e executa retenção, expurgo, lixeira e exclusão de sites |
+| Logs e auditoria | `/logs`, `/audit` | Consulta eventos operacionais e trilha administrativa |
+| Configuração | `/settings`, `/admin` | Gerencia parâmetros e usuários conforme o papel da sessão |
+| Licenças | `/licenses` | Exibe capacidade, consumo, divergência e projeção |
 
 ---
 
@@ -126,7 +134,7 @@ A suíte mínima está dividida em:
 
 - **Vitest + React Testing Library** — unidades e componentes React.
 - **MSW** — contratos HTTP sem depender de um backend real.
-- **Playwright** — smoke tests no navegador, inicialmente cobrindo o redirecionamento para o login React.
+- **Playwright** — smoke tests no navegador para o fluxo público e o redirecionamento de autenticação.
 
 Para preparar o navegador do Playwright pela primeira vez:
 
@@ -134,7 +142,9 @@ Para preparar o navegador do Playwright pela primeira vez:
 npx playwright install --with-deps chromium
 ```
 
-Os testes de API validam, entre outros pontos, o payload flat dos tokens de expurgo, a simulação server-side de retenção e os parâmetros de scans parciais.
+Os testes validam, entre outros pontos, contratos legados sem envelope, sessão autenticada,
+payload flat dos tokens de expurgo, simulação server-side de retenção, parâmetros de scans
+parciais e transporte SSE com fallback para polling.
 
 ---
 

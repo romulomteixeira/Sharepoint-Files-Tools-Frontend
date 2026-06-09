@@ -3,16 +3,11 @@ import { expect, test } from "@playwright/test";
 test("usuário sem sessão é encaminhado para o login React", async ({
   page,
 }) => {
-  await page.route("**/api/scans/list", (route) =>
+  await page.route("**/api/session/check", (route) =>
     route.fulfill({
       status: 401,
       contentType: "application/json",
-      body: JSON.stringify({
-        success: false,
-        data: null,
-        error: { code: "UNAUTHORIZED", message: "Sessão expirada" },
-        meta: {},
-      }),
+      body: JSON.stringify({ ok: false, error: "Sessão expirada" }),
     }),
   );
   await page.route("**/api/public/branding", (route) =>

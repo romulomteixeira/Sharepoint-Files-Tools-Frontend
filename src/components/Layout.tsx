@@ -65,7 +65,8 @@ const NAV_GROUPS: NavGroup[] = [
 
 export default function Layout(): React.ReactElement {
   const navigate = useNavigate();
-  const { onLogout } = useAuth();
+  const { session, onLogout } = useAuth();
+  const currentUserDisplay = session?.displayName || session?.username || 'Operador autenticado';
 
   const handleLogout = async () => {
     try { await apiLogout(); } finally {
@@ -140,7 +141,9 @@ export default function Layout(): React.ReactElement {
           <div style={styles.sideFooter}>
             <div style={styles.userCard}>
               <div style={styles.metaLabel}>Operador</div>
-              <div style={styles.metaValue} id="currentUserDisplay">—</div>
+              <div style={styles.metaValue} id="currentUserDisplay" title={currentUserDisplay}>
+                {currentUserDisplay}
+              </div>
               <div style={{ marginTop: 6 }}>
                 <button style={styles.logoutBtn} type="button" onClick={handleLogout}>
                   Sair
