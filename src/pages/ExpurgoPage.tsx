@@ -1453,10 +1453,10 @@ export default function ExpurgoPage(): React.ReactElement {
         )}
 
         {/* Conteúdo da aba ativa */}
-        {scanId && activeTab === 'versions' && <VersionsTab scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'files'    && <FilesTab    scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'recycle'  && <RecycleTab  scanId={scanId} sites={sites} summary={summary} />}
-        {scanId && activeTab === 'sites'    && <SitesTab    scanId={scanId} />}
+        {scanId && activeTab === 'versions' && <VersionsTab key={scanId} scanId={scanId} sites={sites} summary={summary} />}
+        {scanId && activeTab === 'files'    && <FilesTab    key={scanId} scanId={scanId} sites={sites} summary={summary} />}
+        {scanId && activeTab === 'recycle'  && <RecycleTab  key={scanId} scanId={scanId} sites={sites} summary={summary} />}
+        {scanId && activeTab === 'sites'    && <SitesTab    key={scanId} scanId={scanId} />}
 
       </div>
     </>

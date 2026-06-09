@@ -25,7 +25,6 @@ FROM nginx:1.28-alpine AS runtime
 # Aplica todos os patches de segurança disponíveis no Alpine e garante
 # que libxml2 esteja na versão mais recente (corrige CVEs libxml2 em Alpine < 3.21).
 RUN apk upgrade --no-cache \
-    && apk add --no-cache libxml2 \
     && rm /etc/nginx/conf.d/default.conf
 
 # Copiar configuração customizada
