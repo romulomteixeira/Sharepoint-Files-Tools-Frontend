@@ -797,3 +797,24 @@ equivalente no React:
 | `/settings` | Configurações | ✅ Funcional (Sprint 18) |
 | `/admin` | Administração | ✅ Funcional (Sprint 18) |
 | `/licenses` | Licenças & Espaço | ✅ Funcional (Sprint 19) |
+
+---
+
+## Correções pós-Sprint 24 — paridade com o backend homologado
+
+### ✅ Bloco 1 — SMTP e OAuth / OpenID Connect
+
+- Configuração SMTP completa: host, porta, TLS direto, usuário, senha e remetente
+- Configuração do login Microsoft com credenciais próprias ou fallback para a app principal
+- Redirect URI calculado e orientação para cadastro como plataforma Web no Entra ID
+- Domínios permitidos, e-mails administradores e texto do botão Microsoft
+- Busca de grupos no Entra ID e atribuição aos perfis de leitura ou administrador
+- Validação de grupos via contrato homologado, incluindo opção de salvar e validar
+- Secrets redigidos e removidos do estado do navegador após salvamento
+- Testes de API e interface para payloads SMTP/OAuth e validação de grupos
+
+### 📋 Próximos blocos
+
+- Bloco 2 — modelo de versionamento, apps extras e diagnóstico de workers
+- Bloco 3 — listagem explícita, seleção e paginação de sites
+- Bloco 4 — escopo, modo, limites e cancelamento de scans

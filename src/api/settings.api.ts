@@ -19,6 +19,21 @@ export interface AppConfig {
   tenantId?:               string;
   clientId?:               string;
   clientSecret?:           string;   // sempre '' na resposta pública
+  oauthEnabled?:           boolean;
+  oauthTenantId?:          string;
+  oauthClientId?:          string;
+  oauthClientSecret?:      string;   // sempre '' na resposta pública
+  oauthAllowedDomains?:    string;
+  oauthAdminEmails?:       string;
+  oauthReaderGroups?:      string;
+  oauthAdminGroups?:       string;
+  oauthButtonLabel?:       string;
+  smtpHost?:               string;
+  smtpPort?:               number;
+  smtpSecure?:             boolean;
+  smtpUser?:               string;
+  smtpPass?:               string;   // sempre '' na resposta pública
+  smtpFrom?:               string;
   operatorName?:           string;
   operatorEmail?:          string;
   concurrency?:            number;
@@ -59,6 +74,40 @@ export interface OkResponse {
   ok:       boolean;
   message?: string;
   error?:   string;
+}
+
+export interface OauthGroup {
+  id: string;
+  name: string;
+}
+
+export interface OauthGroupValidationItem extends OauthGroup {
+  role: 'reader' | 'admin';
+  exists: boolean;
+  error?: string;
+}
+
+export interface OauthGroupValidationResult {
+  ok: boolean;
+  reader: OauthGroupValidationItem[];
+  admin: OauthGroupValidationItem[];
+  summary: {
+    total: number;
+    valid: number;
+    invalid: number;
+  };
+  error?: string;
+}
+
+export interface OauthValidationPayload {
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  oauthTenantId?: string;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthReaderGroups?: string;
+  oauthAdminGroups?: string;
 }
 
 // ─── Fetch interno ────────────────────────────────────────────────────────────
@@ -109,6 +158,23 @@ export async function getConfig(): Promise<AppConfig> {
 /** Salva configuração (requer sessão de administrador). */
 export async function saveConfig(config: Partial<AppConfig>): Promise<OkResponse> {
   return sfetch<OkResponse>('POST', '/api/config', config);
+}
+
+/** Busca grupos do Microsoft Entra ID para atribuição de perfis SSO. */
+export async function searchOauthGroups(query: string): Promise<OauthGroup[]> {
+  const params = new URLSearchParams({ q: query.trim() });
+  const response = await sfetch<{ ok: boolean; items: OauthGroup[] }>(
+    'GET',
+    `/api/oauth/groups/search?${params.toString()}`,
+  );
+  return response.items ?? [];
+}
+
+/** Valida os grupos configurados usando as credenciais efetivas do formulário. */
+export async function validateOauthGroups(
+  payload: OauthValidationPayload,
+): Promise<OauthGroupValidationResult> {
+  return sfetch<OauthGroupValidationResult>('POST', '/api/oauth/groups/validate', payload);
 }
 
 /** Lista todos os usuários cadastrados (requer sessão de administrador). */
