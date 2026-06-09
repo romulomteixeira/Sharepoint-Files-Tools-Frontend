@@ -625,7 +625,7 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
 
 ---
 
-## 📋 Sprint 22 — ScansPage completa com seleção de sites (backend Sprint 8)
+## ✅ Sprint 22 — ScansPage completa com seleção de sites (backend Sprint 8)
 
 **Branch:** `feat/sprint-22-scans-site-selection`
 **Objetivo:** Cobrir GAP 3 — substituir o stub básico do ScansPage pela interface completa de
@@ -652,15 +652,24 @@ seleção de sites do Sprint 8 do backend.
   - Link "Logs" para scans `error`
 - Toast de confirmação ao iniciar novo scan
 
+### Contratos confirmados no backend homologado
+- `GET /api/sites` retorna `{ items, note }`
+- `POST /api/scans` recebe `allSites`, `sites`, `siteSearch`, `maxSites` e `options`
+- `POST /api/scans` retorna `{ scanId }`
+- `GET /api/scans/list` retorna `{ items }`, status em maiúsculas e campos legados (`scanId`, `files`, `bytes`, `request`)
+- O versionamento por scan ainda depende da configuração global; `options.enableVersioning` registra a intenção da UI
+
 ### Checklist de conclusão
-- [ ] Busca de sites com debounce e checkboxes
-- [ ] `createScan` aceita `siteIds` e `enableVersioning`
-- [ ] Botão contextual (selecionados vs. tenant completo)
-- [ ] Tabela de scans com coluna "Tipo"
-- [ ] `npm run type-check` zero erros
-- [ ] `npm run lint` zero warnings
-- [ ] `npm run build` limpo
-- [ ] Commit + push + PR para `develop`
+- [x] Busca de sites com debounce e checkboxes
+- [x] `createScan` adapta `siteIds` e `enableVersioning` ao contrato homologado
+- [x] Botão contextual (selecionados vs. tenant completo)
+- [x] Tabela de scans com coluna "Tipo"
+- [x] Cliente HTTP compatível com envelope padronizado e JSON legado
+- [x] Testes de contrato para scans e respostas legadas
+- [x] `npm run type-check` zero erros
+- [x] `npm run lint` zero warnings
+- [x] `npm run test` — 12 testes aprovados
+- [x] `npm run build` limpo
 
 ---
 

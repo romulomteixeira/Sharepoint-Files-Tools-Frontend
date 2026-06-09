@@ -41,6 +41,13 @@ export interface Scan {
   totalFiles?: number;
   totalBytes?: number;
   lastError?: string;
+  request?: {
+    allSites?: boolean;
+    sites?: string[];
+    options?: {
+      enableVersioning?: boolean;
+    };
+  };
 }
 
 /**

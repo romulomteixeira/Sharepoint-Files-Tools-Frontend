@@ -52,7 +52,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
     // Sinaliza sessão expirada — AuthContext escuta e redireciona para /login
     notifyUnauthorized(res);
 
-    let errorBody: ApiResponse | null = null;
+    let errorBody: ApiResponse | { error?: string; message?: string } | null = null;
     try {
       if (contentType.includes('application/json')) {
         errorBody = (await res.json()) as ApiResponse;
@@ -60,26 +60,42 @@ async function parseResponse<T>(res: Response): Promise<T> {
     } catch {
       // ignore parse error
     }
-    const apiErr = errorBody?.error;
+    const apiErr = errorBody && typeof errorBody.error === 'object'
+      ? errorBody.error
+      : null;
+    const legacyMessage = errorBody && typeof errorBody.error === 'string'
+      ? errorBody.error
+      : errorBody && 'message' in errorBody && typeof errorBody.message === 'string'
+        ? errorBody.message
+        : undefined;
     throw new ApiClientError(
       apiErr?.code ?? 'HTTP_ERROR',
-      apiErr?.message ?? `HTTP ${res.status} ${res.statusText}`,
+      apiErr?.message ?? legacyMessage ?? `HTTP ${res.status} ${res.statusText}`,
       res.status,
       apiErr?.details,
     );
   }
 
   if (contentType.includes('application/json')) {
-    const envelope = (await res.json()) as ApiResponse<T>;
-    if (envelope.success === false) {
-      throw new ApiClientError(
-        envelope.error?.code ?? 'API_ERROR',
-        envelope.error?.message ?? 'Erro desconhecido da API',
-        res.status,
-        envelope.error?.details,
-      );
+    const payload = (await res.json()) as ApiResponse<T> | T;
+    if (
+      payload !== null
+      && typeof payload === 'object'
+      && 'success' in payload
+      && typeof payload.success === 'boolean'
+    ) {
+      const envelope = payload as ApiResponse<T>;
+      if (envelope.success === false) {
+        throw new ApiClientError(
+          envelope.error?.code ?? 'API_ERROR',
+          envelope.error?.message ?? 'Erro desconhecido da API',
+          res.status,
+          envelope.error?.details,
+        );
+      }
+      return envelope.data as T;
     }
-    return envelope.data as T;
+    return payload as T;
   }
 
   // Resposta não-JSON (ex: download de arquivo) — retorna texto

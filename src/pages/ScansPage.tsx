@@ -1,58 +1,121 @@
 /**
- * ScansPage.tsx — Lista de scans e botão para iniciar novo scan (Sprint 10)
+ * ScansPage.tsx - Criação de scans completos ou por seleção de sites.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../hooks/useApi';
-import { listScans, createScan } from '../api/scans.api';
+import { createScan, listScans, searchSites } from '../api/scans.api';
+import type { SiteSearchResult } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
+import { useApi } from '../hooks/useApi';
 import type { Scan } from '../types';
 
 function formatBytes(bytes: number | undefined): string {
   if (!bytes) return '—';
-  const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), sizes.length - 1);
+  return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${sizes[index]}`;
 }
 
-function statusBadge(status: Scan['status']): React.ReactElement {
-  const colors: Record<string, string> = {
-    completed: '#d1fae5',
-    running:   '#dbeafe',
-    pending:   '#fef3c7',
-    failed:    '#fee2e2',
-    cancelled: '#f3f4f6',
+const statusLabels: Record<Scan['status'], string> = {
+  pending: 'Na fila',
+  running: 'Em execução',
+  completed: 'Concluído',
+  failed: 'Erro',
+  cancelled: 'Cancelado',
+};
+
+function StatusBadge({ status }: { status: Scan['status'] }): React.ReactElement {
+  const colors: Record<Scan['status'], React.CSSProperties> = {
+    completed: { background: '#d1fae5', color: '#065f46' },
+    running: { background: '#dbeafe', color: '#1e40af' },
+    pending: { background: '#fef3c7', color: '#92400e' },
+    failed: { background: '#fee2e2', color: '#991b1b' },
+    cancelled: { background: '#f3f4f6', color: '#374151' },
   };
-  const textColors: Record<string, string> = {
-    completed: '#065f46',
-    running:   '#1e40af',
-    pending:   '#92400e',
-    failed:    '#991b1b',
-    cancelled: '#374151',
-  };
-  return (
-    <span style={{ background: colors[status] ?? '#f3f4f6', color: textColors[status] ?? '#374151', padding: '0.2rem 0.6rem', borderRadius: 12, fontSize: '0.8rem', fontWeight: 600 }}>
-      {status}
-    </span>
-  );
+  return <span style={{ ...styles.badge, ...colors[status] }}>{statusLabels[status]}</span>;
+}
+
+function scanType(scan: Scan): string {
+  if (scan.request?.allSites === true) return 'Completo';
+  const count = scan.request?.sites?.length;
+  if (count) return `Parcial (${count} site${count === 1 ? '' : 's'})`;
+  return '—';
 }
 
 export default function ScansPage(): React.ReactElement {
   const { data: scans, loading, error, refetch } = useApi(listScans, []);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SiteSearchResult[]>([]);
+  const [selected, setSelected] = useState<SiteSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [enableVersioning, setEnableVersioning] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
+  const requestRef = useRef(0);
 
-  async function handleCreateScan() {
+  useEffect(() => {
+    const currentRequest = ++requestRef.current;
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const sites = await searchSites(query, 50);
+        if (requestRef.current === currentRequest) setResults(sites);
+      } catch (err) {
+        if (requestRef.current === currentRequest) {
+          setResults([]);
+          setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
+        }
+      } finally {
+        if (requestRef.current === currentRequest) setSearching(false);
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const selectedIds = useMemo(() => new Set(selected.map((site) => site.id)), [selected]);
+  const allResultsSelected = results.length > 0 && results.every((site) => selectedIds.has(site.id));
+
+  function toggleSite(site: SiteSearchResult): void {
+    setSelected((current) => current.some((item) => item.id === site.id)
+      ? current.filter((item) => item.id !== site.id)
+      : [...current, site]);
+  }
+
+  function toggleAll(): void {
+    if (allResultsSelected) {
+      const resultIds = new Set(results.map((site) => site.id));
+      setSelected((current) => current.filter((site) => !resultIds.has(site.id)));
+      return;
+    }
+    setSelected((current) => {
+      const byId = new Map(current.map((site) => [site.id, site]));
+      results.forEach((site) => byId.set(site.id, site));
+      return Array.from(byId.values());
+    });
+  }
+
+  async function handleCreateScan(): Promise<void> {
     setCreating(true);
-    setCreateError(null);
     try {
-      await createScan();
+      const scan = await createScan({
+        siteIds: selected.map((site) => site.id),
+        enableVersioning,
+      });
+      setToast({ text: `Scan ${scan.id.slice(0, 8)} iniciado com sucesso.`, kind: 'success' });
+      setSelected([]);
       refetch();
     } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : 'Erro ao iniciar scan.';
-      setCreateError(msg);
+      const text = err instanceof ApiClientError ? err.message : 'Erro ao iniciar scan.';
+      setToast({ text, kind: 'error' });
     } finally {
       setCreating(false);
     }
@@ -60,77 +123,172 @@ export default function ScansPage(): React.ReactElement {
 
   return (
     <div style={styles.page}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>Scans</h1>
-        <button onClick={handleCreateScan} disabled={creating} style={styles.button}>
-          {creating ? 'Iniciando...' : '+ Novo Scan'}
-        </button>
-      </div>
-
-      {createError && <p style={styles.error}>{createError}</p>}
-
-      {loading && <p>Carregando scans...</p>}
-      {error && <p style={styles.error}>{error}</p>}
-
-      {!loading && !error && scans && scans.length === 0 && (
-        <p style={styles.empty}>Nenhum scan encontrado. Inicie um novo scan acima.</p>
-      )}
-
-      {!loading && scans && scans.length > 0 && (
-        <div style={styles.tableWrapper}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>ID</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Sites</th>
-                <th style={styles.th}>Arquivos</th>
-                <th style={styles.th}>Volume</th>
-                <th style={styles.th}>Criado em</th>
-                <th style={styles.th}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scans.map((scan) => (
-                <tr key={scan.id} style={styles.tr}>
-                  <td style={styles.td}>
-                    <span style={styles.monospace} title={scan.id}>{scan.id.slice(0, 8)}…</span>
-                  </td>
-                  <td style={styles.td}>{statusBadge(scan.status)}</td>
-                  <td style={styles.td}>{scan.totalSites?.toLocaleString('pt-BR') ?? '—'}</td>
-                  <td style={styles.td}>{scan.totalFiles?.toLocaleString('pt-BR') ?? '—'}</td>
-                  <td style={styles.td}>{formatBytes(scan.totalBytes)}</td>
-                  <td style={styles.td}>{new Date(scan.createdAt).toLocaleString('pt-BR')}</td>
-                  <td style={styles.td}>
-                    {scan.status === 'running' && (
-                      <Link to={`/jobs/${scan.id}`} style={styles.link}>Progresso</Link>
-                    )}
-                    {scan.status === 'completed' && (
-                      <Link to={`/inventory/${scan.id}`} style={styles.link}>Inventário</Link>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {toast && (
+        <div role="status" style={{ ...styles.toast, ...(toast.kind === 'success' ? styles.toastSuccess : styles.toastError) }}>
+          {toast.text}
         </div>
       )}
+
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.title}>Scans</h1>
+          <p style={styles.subtitle}>Inicie um inventário completo ou escolha sites específicos.</p>
+        </div>
+      </div>
+
+      <section style={styles.panel}>
+        <h2 style={styles.panelTitle}>Iniciar novo scan</h2>
+        <label htmlFor="site-search" style={styles.label}>Buscar site por nome ou URL</label>
+        <input
+          id="site-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Digite para buscar; vazio lista os primeiros sites"
+          style={styles.input}
+        />
+        <div style={styles.helper}>{searching ? 'Buscando sites...' : `${results.length} site(s) encontrado(s)`}</div>
+        {searchError && <div role="alert" style={styles.error}>{searchError}</div>}
+
+        {results.length > 0 && (
+          <>
+            <div style={styles.selectionActions}>
+              <button type="button" onClick={toggleAll} style={styles.secondaryButton}>
+                {allResultsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
+              </button>
+              <button type="button" onClick={() => setSelected([])} disabled={selected.length === 0} style={styles.secondaryButton}>
+                Limpar seleção
+              </button>
+            </div>
+            <div style={styles.siteList}>
+              {results.map((site) => (
+                <label key={site.id} style={styles.siteRow}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(site.id)}
+                    onChange={() => toggleSite(site)}
+                  />
+                  <span>
+                    <strong>{site.displayName || site.webUrl}</strong>
+                    <small style={styles.siteUrl}>{site.webUrl}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        {selected.length > 0 && (
+          <div style={styles.chips} aria-label="Sites selecionados">
+            {selected.slice(0, 5).map((site) => (
+              <button key={site.id} type="button" onClick={() => toggleSite(site)} style={styles.chip} title="Remover da seleção">
+                {site.displayName || site.webUrl} ×
+              </button>
+            ))}
+            {selected.length > 5 && <span style={styles.moreChip}>+{selected.length - 5} mais</span>}
+          </div>
+        )}
+
+        <label style={styles.toggleRow}>
+          <input
+            type="checkbox"
+            checked={enableVersioning}
+            onChange={(event) => setEnableVersioning(event.target.checked)}
+          />
+          <span>
+            <strong>Solicitar versionamento automático</strong>
+            <small style={styles.toggleHelp}>A execução depende da política global configurada no backend homologado.</small>
+          </span>
+        </label>
+
+        <button type="button" onClick={handleCreateScan} disabled={creating} style={styles.primaryButton}>
+          {creating
+            ? 'Iniciando...'
+            : selected.length > 0
+              ? `Scan dos sites selecionados (${selected.length})`
+              : 'Scan completo do tenant'}
+        </button>
+      </section>
+
+      <section>
+        <h2 style={styles.listTitle}>Scans existentes</h2>
+        {loading && <p>Carregando scans...</p>}
+        {error && <p style={styles.error}>{error}</p>}
+        {!loading && !error && scans?.length === 0 && <p style={styles.empty}>Nenhum scan encontrado.</p>}
+
+        {!loading && scans && scans.length > 0 && (
+          <div style={styles.tableWrapper}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>ID</th>
+                  <th style={styles.th}>Tipo</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Sites</th>
+                  <th style={styles.th}>Arquivos</th>
+                  <th style={styles.th}>Volume</th>
+                  <th style={styles.th}>Criado em</th>
+                  <th style={styles.th}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scans.map((scan) => (
+                  <tr key={scan.id} style={styles.tr}>
+                    <td style={styles.td}><span style={styles.monospace} title={scan.id}>{scan.id.slice(0, 8)}…</span></td>
+                    <td style={styles.td}>{scanType(scan)}</td>
+                    <td style={styles.td}><StatusBadge status={scan.status} /></td>
+                    <td style={styles.td}>{scan.totalSites?.toLocaleString('pt-BR') ?? '—'}</td>
+                    <td style={styles.td}>{scan.totalFiles?.toLocaleString('pt-BR') ?? '—'}</td>
+                    <td style={styles.td}>{formatBytes(scan.totalBytes)}</td>
+                    <td style={styles.td}>{new Date(scan.createdAt).toLocaleString('pt-BR')}</td>
+                    <td style={styles.td}>
+                      {(scan.status === 'running' || scan.status === 'pending') && <Link to="/" style={styles.link}>Acompanhar</Link>}
+                      {scan.status === 'completed' && <Link to={`/inventory/${scan.id}`} style={styles.link}>Inventário</Link>}
+                      {scan.status === 'failed' && <Link to="/logs" style={styles.link}>Logs</Link>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page:         { maxWidth: 1100, margin: '0 auto', padding: '2rem 1rem' },
-  header:       { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' },
-  title:        { fontSize: '1.75rem', fontWeight: 700 },
-  button:       { padding: '0.6rem 1.25rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' },
-  error:        { color: '#ef4444', marginBottom: '1rem' },
-  empty:        { color: '#6b7280', padding: '2rem 0' },
+  page: { maxWidth: 1180, margin: '0 auto', padding: '2rem 1rem' },
+  header: { display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' },
+  title: { fontSize: '1.75rem', fontWeight: 700, margin: 0 },
+  subtitle: { color: '#6b7280', margin: '0.35rem 0 0' },
+  panel: { border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '2rem', background: '#fff' },
+  panelTitle: { fontSize: '1.1rem', margin: '0 0 1rem' },
+  label: { display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: 6 },
+  input: { width: '100%', boxSizing: 'border-box', padding: '0.7rem 0.8rem', border: '1px solid #d1d5db', borderRadius: 6 },
+  helper: { minHeight: 20, color: '#6b7280', fontSize: '0.8rem', marginTop: 5 },
+  selectionActions: { display: 'flex', gap: 8, margin: '0.75rem 0' },
+  secondaryButton: { padding: '0.45rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' },
+  siteList: { maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 },
+  siteRow: { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '0.7rem', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' },
+  siteUrl: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
+  chips: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: '0.8rem' },
+  chip: { border: 0, borderRadius: 999, padding: '0.35rem 0.65rem', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' },
+  moreChip: { borderRadius: 999, padding: '0.35rem 0.65rem', background: '#f3f4f6', color: '#374151' },
+  toggleRow: { display: 'flex', alignItems: 'flex-start', gap: 10, margin: '1rem 0', cursor: 'pointer' },
+  toggleHelp: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
+  primaryButton: { padding: '0.7rem 1.15rem', background: '#2563eb', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
+  listTitle: { fontSize: '1.15rem', marginBottom: '0.75rem' },
+  error: { color: '#b91c1c', margin: '0.5rem 0' },
+  empty: { color: '#6b7280', padding: '1rem 0' },
   tableWrapper: { overflowX: 'auto' },
-  table:        { width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' },
-  th:           { padding: '0.75rem 1rem', background: '#f9fafb', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' },
-  tr:           { borderBottom: '1px solid #f3f4f6' },
-  td:           { padding: '0.75rem 1rem', color: '#374151' },
-  monospace:    { fontFamily: 'monospace', fontSize: '0.85rem' },
-  link:         { color: '#3b82f6', textDecoration: 'none', fontWeight: 500 },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' },
+  th: { padding: '0.75rem', background: '#f9fafb', textAlign: 'left', color: '#374151', borderBottom: '2px solid #e5e7eb' },
+  tr: { borderBottom: '1px solid #f3f4f6' },
+  td: { padding: '0.75rem', color: '#374151' },
+  monospace: { fontFamily: 'monospace', fontSize: '0.82rem' },
+  link: { color: '#2563eb', textDecoration: 'none', fontWeight: 600 },
+  badge: { display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: 12, fontSize: '0.78rem', fontWeight: 600 },
+  toast: { position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '0.75rem 1rem', borderRadius: 6, border: '1px solid', fontWeight: 600 },
+  toastSuccess: { background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' },
+  toastError: { background: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' },
 };
