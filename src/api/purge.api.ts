@@ -16,7 +16,7 @@
  *   O backend passa o body inteiro como requestParams e faz hash de { operation, scanId, params: cleanRest }
  */
 
-import { post, get } from './client';
+import { post, get, postBlob } from './client';
 import type { JobStatusDetail } from '../types';
 
 // ─── Tipos de operação ────────────────────────────────────────────────────────
@@ -270,19 +270,9 @@ export async function getPurgeJobStatus(jobId: string): Promise<JobStatusDetail>
 // ─── Helper interno: download de blob ────────────────────────────────────────
 
 async function postBlobDownload(path: string, body: unknown, fallbackName: string): Promise<void> {
-  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
-  const res = await fetch(`${base}${path}`, {
-    method:      'POST',
-    headers:     { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body:        JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Exportação falhou: HTTP ${res.status}`);
-  const blob = await res.blob();
-  const cd    = res.headers.get('content-disposition') ?? '';
-  const match = cd.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
-  const name  = match?.[1]?.trim() || fallbackName;
-  const url   = URL.createObjectURL(blob);
+  const { blob, filename } = await postBlob(path, body);
+  const name = filename || fallbackName;
+  const url  = URL.createObjectURL(blob);
   const a     = document.createElement('a');
   a.href     = url;
   a.download = name;

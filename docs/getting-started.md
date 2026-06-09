@@ -178,7 +178,7 @@ npm run build
 
 | Problema | Causa | Solução |
 |---|---|---|
-| `npm ci` falha no Docker | `package-lock.json` não commitado | Sempre commitar o lock file |
+| Pacote de teste não encontrado | Dependências de desenvolvimento não instaladas | Execute `npm install --legacy-peer-deps` antes dos checks |
 | `import.meta.env` não reconhecido | `vite-env.d.ts` ausente | Verificar se o arquivo existe em `src/` |
 | `manualChunks is not a function` | Vite 8 exige função, não objeto | Usar `manualChunks(id) { ... }` |
 | API retorna 401 | Sessão expirada ou não autenticado | Acessar o backend em `:8787/login` |

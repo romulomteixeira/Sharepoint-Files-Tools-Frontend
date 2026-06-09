@@ -83,6 +83,9 @@ O `docker-compose.yml` do backend baixa automaticamente a imagem publicada do fr
 | `npm run preview` | Pré-visualiza o build de produção |
 | `npm run lint` | ESLint em `src/` (zero warnings tolerados) |
 | `npm run type-check` | Verificação de tipos via `tsc --noEmit` |
+| `npm test` | Testes unitários e de componentes com Vitest + Testing Library + MSW |
+| `npm run test:coverage` | Testes com relatório de cobertura V8 |
+| `npm run test:e2e` | Smoke tests end-to-end com Playwright/Chromium |
 
 ---
 
@@ -111,7 +114,27 @@ Em desenvolvimento, o proxy do Vite cuida do roteamento para o backend. Em produ
 
 ## Autenticação
 
-> A autenticação é gerenciada pelo **backend**. O frontend não possui página de login própria. Ao acessar a aplicação sem sessão ativa, o backend redireciona para `/login` (servido pelo próprio backend na porta 8787).
+A autenticação é validada pelo **backend**, mas toda a experiência de login é renderizada pelo frontend React na rota `/login`. O fluxo cobre login local, primeiro acesso, confirmação do primeiro administrador e desbloqueio. Ao receber HTTP 401 de um endpoint protegido, o cliente emite `auth:unauthorized` e as rotas protegidas encaminham o usuário para `/login`.
+
+---
+
+## Testes automatizados
+
+Antes de executar os checks, instale também as dependências de desenvolvimento com `npm install --legacy-peer-deps`.
+
+A suíte mínima está dividida em:
+
+- **Vitest + React Testing Library** — unidades e componentes React.
+- **MSW** — contratos HTTP sem depender de um backend real.
+- **Playwright** — smoke tests no navegador, inicialmente cobrindo o redirecionamento para o login React.
+
+Para preparar o navegador do Playwright pela primeira vez:
+
+```bash
+npx playwright install --with-deps chromium
+```
+
+Os testes de API validam, entre outros pontos, o payload flat dos tokens de expurgo, a simulação server-side de retenção e os parâmetros de scans parciais.
 
 ---
 
@@ -119,12 +142,13 @@ Em desenvolvimento, o proxy do Vite cuida do roteamento para o backend. Em produ
 
 Cada push para `main` dispara automaticamente:
 
-1. **Code quality** — ESLint + TypeScript type-check + build
-2. **Dockerfile lint** — Hadolint
-3. **Secret scan** — Gitleaks
-4. **Trivy filesystem** — CVEs em dependências npm e IaC
-5. **Build e scan da imagem Docker** — Trivy na imagem gerada
-6. **Publish** — Push para Docker Hub (`romulomteixeira/sharepoint-monitor-frontend:latest`)
+1. **Code quality** — ESLint + TypeScript type-check + Vitest + build
+2. **Smoke tests E2E** — Playwright em Chromium
+3. **Dockerfile lint** — Hadolint
+4. **Secret scan** — Gitleaks
+5. **Trivy filesystem** — CVEs em dependências npm e IaC
+6. **Build e scan da imagem Docker** — Trivy na imagem gerada
+7. **Publish** — Push para Docker Hub (`romulomteixeira/sharepoint-monitor-frontend:latest`)
 
 Configure em **Settings → Secrets and variables → Actions** do repositório:
 
