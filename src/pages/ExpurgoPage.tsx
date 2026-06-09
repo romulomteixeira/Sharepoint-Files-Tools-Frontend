@@ -346,7 +346,8 @@ function VersionsTab({ scanId, sites, summary }: TabSharedProps) {
 
   async function runPreview() {
     if (!scanId) return;
-    setPreviewFiles([]); setPreviewError(null); setPreviewLoading(true); setStep('preview');
+    setPreviewFiles([]); setTotalMatches(0); setTotalBytes(0);
+    setPreviewError(null); setPreviewLoading(true); setStep('preview');
     try {
       const rule = buildRule();
       const [simulation, inventory] = await Promise.all([

@@ -1,15 +1,15 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react-oxc";
-import { resolve } from "path";
 
 export default defineConfig({
-  plugins: [react()],
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
     },
   },
   test: {
+    include: ["src/**/*.test.{ts,tsx}"],
+    exclude: ["e2e/**", "node_modules/**", "dist/**"],
     environment: "jsdom",
     environmentOptions: { jsdom: { url: "http://localhost/" } },
     globals: true,
@@ -19,7 +19,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/main.tsx", "src/vite-env.d.ts", "src/test/**"],
+      exclude: [
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+        "src/test/**",
+        "src/**/*.test.{ts,tsx}",
+      ],
     },
   },
 });
