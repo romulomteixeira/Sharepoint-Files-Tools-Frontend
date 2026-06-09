@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependências de dev (necessárias para o build Vite)
-RUN npm ci --ignore-scripts --legacy-peer-deps
+RUN npm install --ignore-scripts --legacy-peer-deps
 
 # Copiar código-fonte e construir
 COPY . .

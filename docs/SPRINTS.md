@@ -621,6 +621,7 @@ ao backend Sprint 8 (`eee93c7`: busca por slug/nome com checkboxes e execução 
 - Vitest + React Testing Library para unidades e componentes
 - MSW para contratos das APIs de scans e expurgo
 - Playwright para smoke tests de autenticação no navegador
+- Dependências de teste com peers explícitos (`@testing-library/dom`, `@types/node`) e tipagem isolada em `tsconfig.test.json`
 
 ---
 

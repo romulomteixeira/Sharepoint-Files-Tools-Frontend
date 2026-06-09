@@ -120,6 +120,8 @@ A autenticação é validada pelo **backend**, mas toda a experiência de login 
 
 ## Testes automatizados
 
+Antes de executar os checks, instale também as dependências de desenvolvimento com `npm install --legacy-peer-deps`.
+
 A suíte mínima está dividida em:
 
 - **Vitest + React Testing Library** — unidades e componentes React.
