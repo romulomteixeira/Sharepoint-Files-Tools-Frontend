@@ -128,7 +128,25 @@ export interface InventorySummary {
   totalDrives: number;
   totalFiles: number;
   totalBytes: number;
+  /** Total de versões (somatório de version_count). */
   totalVersions?: number;
+  /** Alias do backend para totalVersions. */
+  versionsTotal?: number;
+  /** Quantidade de arquivos COM pelo menos 1 versão. */
+  versionedFiles?: number;
+  /** Alias para versionedFiles. */
+  versionsDone?: number;
+  /** Bytes consumidos por versões. */
+  versionsBytes?: number;
+  versionsBytesHuman?: string;
+  versionsProgressPct?: number;
+  /** True quando o tenant tem versionamento ativo. */
+  versioningEnabled?: boolean;
+  progressPct?: number;
+  doneSites?: number;
+  doneDrives?: number;
+  bytesHuman?: string;
+  totalBytesHuman?: string;
   topExtensions?: ExtensionRollup[];
 }
 

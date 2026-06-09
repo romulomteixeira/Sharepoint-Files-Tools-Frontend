@@ -269,8 +269,16 @@ export default function DashboardPage(): React.ReactElement {
 
   const files   = p?.files   ?? summary?.totalFiles  ?? selectedScan?.totalFiles;
   const bytes   = p?.bytes   ?? summary?.totalBytes  ?? selectedScan?.totalBytes;
-  const sites   = p?.doneSites   ?? summary?.totalSites  ?? selectedScan?.totalSites;
-  const drives  = p?.doneDrives  ?? summary?.totalDrives ?? selectedScan?.totalDrives;
+  const sites   = p?.doneSites   ?? summary?.doneSites   ?? summary?.totalSites  ?? selectedScan?.totalSites;
+  const drives  = p?.doneDrives  ?? summary?.doneDrives  ?? summary?.totalDrives ?? selectedScan?.totalDrives;
+
+  // Campos de versionamento vêm de scans.totals (lido via summary) — antes o
+  // frontend lia só de progress (que não tem) e o card sumia.
+  const versioningEnabled =
+    summary?.versioningEnabled ?? p?.versioningEnabled ?? false;
+  const versionsDone  = summary?.versionsDone  ?? summary?.versionedFiles ?? p?.versionsDone  ?? 0;
+  const versionsTotal = summary?.versionsTotal ?? summary?.totalVersions  ?? p?.versionsTotal ?? 0;
+  const versionsBytes = summary?.versionsBytes ?? p?.versionsBytes ?? 0;
 
   const topExt = summary?.topExtensions?.slice(0, 10) ?? [];
   const maxExt = topExt[0]?.fileCount ?? 1;
@@ -361,11 +369,11 @@ export default function DashboardPage(): React.ReactElement {
         <KpiCard label="Drives" value={fmtNum(drives)} hint={`${fmtNum(p?.totalDrives ?? selectedScan?.totalDrives)} total`} />
         <KpiCard label="Arquivos" value={fmtNum(files)} accent={C.text} />
         <KpiCard label="Volume total" value={fmtBytes(bytes)} accent={C.text} />
-        {p?.versioningEnabled && (
+        {versioningEnabled && (
           <KpiCard
             label="Versões"
-            value={fmtNum(p.versionsDone)}
-            hint={`${fmtNum(p.versionsTotal)} total • ${fmtBytes(p.versionsBytes)}`}
+            value={fmtNum(versionsDone)}
+            hint={`${fmtNum(versionsTotal)} total • ${fmtBytes(versionsBytes)}`}
           />
         )}
         <div style={s.kpiStatus}>
@@ -422,14 +430,14 @@ export default function DashboardPage(): React.ReactElement {
               sub={fmtBytes(p?.bytes)}
               tone={p?.files ? 'run' : 'idle'}
             />
-            {p?.versioningEnabled && (
+            {versioningEnabled && (
               <>
                 <span style={s.flowArrow}>→</span>
                 <FlowNode
                   label="Versões"
-                  value={`${fmtNum(p.versionsDone)}/${fmtNum(p.versionsTotal)}`}
-                  sub={fmtBytes(p.versionsBytes)}
-                  tone={p.versionsTotal ? (p.versionsDone === p.versionsTotal ? 'done' : 'run') : 'idle'}
+                  value={`${fmtNum(versionsDone)}/${fmtNum(versionsTotal)}`}
+                  sub={fmtBytes(versionsBytes)}
+                  tone={versionsTotal ? (versionsDone === versionsTotal ? 'done' : 'run') : 'idle'}
                 />
               </>
             )}

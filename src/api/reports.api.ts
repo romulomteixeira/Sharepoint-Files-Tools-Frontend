@@ -1,8 +1,8 @@
 /**
- * reports.api.ts — Endpoints de exportação assíncrona (Sprint 10)
+ * reports.api.ts — Endpoints de exportação assíncrona.
  *
- * Exportações grandes retornam { jobId, downloadUrl } — o frontend deve
- * aguardar a conclusão via polling em getJobStatus() antes de baixar.
+ * Backend: POST /api/export/inventory/{scanId} cria job; GET /api/export/{id}/status
+ * polla até completed; GET /api/export/download/{id} baixa o arquivo gerado.
  */
 
 import { get, post } from './client';
@@ -18,32 +18,32 @@ export interface ExportInventoryParams {
 }
 
 /**
- * Inicia exportação do inventário.
- * - Para lotes pequenos (≤ EXPORT_SYNC_LIMIT) retorna o arquivo imediatamente (blob URL).
- * - Para lotes grandes retorna { jobId } — use getJobStatus() para aguardar.
+ * Inicia exportação do inventário (assíncrona). Retorna { jobId, status: 'pending', ... }.
+ * Frontend deve poll getExportJobStatus(jobId) até status == 'completed' e então baixar
+ * via getDownloadUrl(jobId).
  */
 export async function exportInventory(params: ExportInventoryParams): Promise<ExportJob> {
   const { scanId, ...rest } = params;
-  return get<ExportJob>(`/api/export/inventory/${scanId}`, rest as Record<string, string | number | boolean | undefined | null>);
+  // POST com body JSON (o backend lê tanto body quanto query — body é o canônico).
+  return post<ExportJob>(`/api/export/inventory/${scanId}`, rest);
 }
 
-/**
- * Baixa o arquivo de exportação após o job estar concluído.
- * Retorna a URL de download para uso em <a href> ou fetch.
- */
+/** URL de download do arquivo gerado (use em <a href> ou window.open). */
 export function getDownloadUrl(jobId: string): string {
   const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
   return `${base}/api/export/download/${jobId}`;
 }
 
-/** Verifica status do job de exportação. */
+/**
+ * Verifica status do job de exportação. Usa endpoint dedicado
+ * /api/export/{id}/status que consulta a tabela export_jobs.
+ */
 export async function getExportJobStatus(jobId: string): Promise<ExportJob> {
-  return get<ExportJob>(`/api/jobs/${jobId}/status`);
+  return get<ExportJob>(`/api/export/${jobId}/status`);
 }
 
 /**
  * Solicita token de confirmação para operação de expurgo.
- * Deve ser chamado antes de execute-job para operações destrutivas.
  */
 export async function requestPurgeConfirmToken(
   operation: string,

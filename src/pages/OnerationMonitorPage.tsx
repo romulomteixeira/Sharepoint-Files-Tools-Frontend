@@ -1,569 +1,295 @@
 /**
- * OnerationMonitorPage.tsx — Monitor de Oneração (Sprint 15)
+ * OnerationMonitorPage.tsx — "Arquivos que mais oneraram o SharePoint".
  *
- * Mostra a evolução do consumo de armazenamento ao longo do tempo,
- * calculando deltas entre scans consecutivos.
+ * Lógica EQUIVALENTE ao legacy (server.js `inventoryTopCost`):
+ *   - Escolhe scan + janela (Dia / Semana / Mês / Ano)
+ *   - Filtra arquivos cujo modified_at (ou created_at) cai no período
+ *   - Ordena por totalBytes (arquivo + versões) desc
  *
- * Fonte de dados: listScans() + getInventorySummary() por scan selecionado.
- * Não requer endpoint dedicado — usa os dados já existentes.
- *
- * Funcionalidades:
- *   - Filtro de período: 7d / 30d / 90d / todos
- *   - Chart SVG de evolução de bytes (área + linha)
- *   - Chart SVG de evolução de arquivos
- *   - Tabela de comparação entre scans com Δ bytes e Δ arquivos
- *   - Indicadores de crescimento (positivo / negativo)
+ * Backend: GET /api/analytics/topcost/{scanId}?window=day|week|month|year&limit=N
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { listScans } from '../api/scans.api';
-import type { GrowthPoint } from '../types';
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
+import { get } from '../api/client';
 
 const C = {
-  bg:     '#eef1f5',
-  panel:  '#ffffff',
-  border: '#c8ced8',
-  accent: '#2b6cb0',
-  text:   '#1a202c',
-  muted:  '#4a5568',
-  good:   '#276749',
-  warn:   '#c05621',
-  bad:    '#c53030',
+  panel: '#ffffff', border: '#c8ced8', accent: '#2b6cb0',
+  text: '#1a202c', muted: '#4a5568',
+  good: '#276749', warn: '#c05621', bad: '#c53030',
 } as const;
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
+type Window = 'day' | 'week' | 'month' | 'year';
+type Field = 'modified' | 'created';
 
-type PeriodFilter = '7d' | '30d' | '90d' | 'all';
+interface TopCostItem {
+  siteId?: string; siteName?: string;
+  driveName?: string; fullPath?: string;
+  name?: string; extension?: string;
+  sizeBytes?: number; versionCount?: number;
+  versionsBytes?: number; totalBytes?: number;
+  modifiedAt?: string; modified?: string;
+  modifiedBy?: string; webUrl?: string;
+}
 
-const PERIOD_OPTIONS: { value: PeriodFilter; label: string }[] = [
-  { value: '7d',  label: 'Últimos 7 dias'  },
-  { value: '30d', label: 'Últimos 30 dias' },
-  { value: '90d', label: 'Últimos 90 dias' },
-  { value: 'all', label: 'Todos os scans'  },
+interface TopCostResp { window?: string; items?: TopCostItem[] }
+
+const WINDOW_OPTIONS: { value: Window; label: string }[] = [
+  { value: 'day', label: 'Dia' }, { value: 'week', label: 'Semana' },
+  { value: 'month', label: 'Mês' }, { value: 'year', label: 'Ano' },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const LIMIT_OPTIONS = [
+  { value: 40, label: 'Top 40' }, { value: 80, label: 'Top 80' },
+  { value: 150, label: 'Top 150' }, { value: 300, label: 'Top 300' },
+];
 
 function fmtBytes(b: number | undefined): string {
-  if (b == null || b === 0) return '0 B';
+  if (!b) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
-  return `${(b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  return `${(b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
+function fmtNum(n: number | undefined): string { return n == null ? '—' : n.toLocaleString('pt-BR'); }
+function fmtDate(iso: string | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('pt-BR');
 }
 
-function fmtNum(n: number | undefined): string {
-  if (n == null) return '—';
-  return n.toLocaleString('pt-BR');
+function csvCell(s: string): string {
+  if (!/[",\n]/.test(s)) return s;
+  return `"${s.replace(/"/g, '""')}"`;
 }
 
-function fmtDateShort(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+function exportCsv(items: TopCostItem[], filename: string) {
+  const header = 'site,biblioteca,caminho,modificado,colaborador,arquivo_bytes,versoes_count,versoes_bytes,total_bytes';
+  const lines = items.map(it => [
+    csvCell(it.siteName ?? ''),
+    csvCell(it.driveName ?? ''),
+    csvCell(it.fullPath ?? ''),
+    csvCell(it.modifiedAt ?? it.modified ?? ''),
+    csvCell(it.modifiedBy ?? ''),
+    String(it.sizeBytes ?? 0),
+    String(it.versionCount ?? 0),
+    String(it.versionsBytes ?? 0),
+    String(it.totalBytes ?? it.sizeBytes ?? 0),
+  ].join(','));
+  const csv = header + '\n' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
-
-function fmtDateFull(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-}
-
-function periodCutoff(period: PeriodFilter): Date {
-  const now = new Date();
-  if (period === '7d')  return new Date(now.getTime() - 7  * 86_400_000);
-  if (period === '30d') return new Date(now.getTime() - 30 * 86_400_000);
-  if (period === '90d') return new Date(now.getTime() - 90 * 86_400_000);
-  return new Date(0);
-}
-
-function deltaSign(v: number | undefined): string {
-  if (v == null || v === 0) return '—';
-  return v > 0 ? `+${fmtNum(v)}` : fmtNum(v);
-}
-
-// ─── SVG Chart ────────────────────────────────────────────────────────────────
-
-interface ChartPoint { label: string; value: number }
-
-function AreaLineChart({
-  data,
-  color,
-  formatY,
-  title,
-}: {
-  data: ChartPoint[];
-  color: string;
-  formatY: (v: number) => string;
-  title: string;
-}) {
-  const W = 540; const H = 140;
-  const PAD = { t: 14, r: 16, b: 36, l: 66 };
-  const cW = W - PAD.l - PAD.r;
-  const cH = H - PAD.t - PAD.b;
-
-  if (data.length < 2) {
-    return (
-      <div style={s.chartWrap}>
-        <div style={s.chartTitle}>{title}</div>
-        <div style={s.chartEmpty}>
-          São necessários ≥ 2 scans no período para exibir a tendência.
-        </div>
-      </div>
-    );
-  }
-
-  const maxVal = Math.max(...data.map(d => d.value), 1);
-
-  const px = (i: number) => PAD.l + (i / (data.length - 1)) * cW;
-  const py = (v: number) => PAD.t + cH - (v / maxVal) * cH;
-
-  const pts = data.map((d, i) => ({ ...d, x: px(i), y: py(d.value) }));
-
-  const linePath  = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const areaPath  = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${(PAD.t + cH).toFixed(1)} L${PAD.l.toFixed(1)},${(PAD.t + cH).toFixed(1)} Z`;
-
-  // Y-axis labels (3 ticks)
-  const yTicks = [0, 0.5, 1].map(t => ({
-    y: PAD.t + cH - t * cH,
-    label: formatY(t * maxVal),
-  }));
-
-  return (
-    <div style={s.chartWrap}>
-      <div style={s.chartTitle}>{title}</div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
-        aria-label={title}
-      >
-        {/* Grid lines */}
-        {yTicks.map((t, i) => (
-          <line key={i} x1={PAD.l} y1={t.y} x2={PAD.l + cW} y2={t.y}
-            stroke={C.border} strokeWidth="1" strokeDasharray="3 3" />
-        ))}
-
-        {/* Y axis labels */}
-        {yTicks.map((t, i) => (
-          <text key={i} x={PAD.l - 6} y={t.y + 3.5}
-            textAnchor="end" fontSize="9" fill={C.muted} fontFamily="Segoe UI, sans-serif">
-            {t.label}
-          </text>
-        ))}
-
-        {/* Area fill */}
-        <path d={areaPath} fill={color} fillOpacity="0.12" />
-
-        {/* Line */}
-        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
-
-        {/* Points */}
-        {pts.map((p, i) => (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r="4" fill={color} stroke="#fff" strokeWidth="1.5" />
-            {/* Tooltip value above point */}
-            <text x={p.x} y={p.y - 8} textAnchor="middle"
-              fontSize="8" fill={color} fontWeight="700" fontFamily="Segoe UI, sans-serif">
-              {formatY(p.value)}
-            </text>
-          </g>
-        ))}
-
-        {/* X axis labels */}
-        {pts.map((p, i) => (
-          <text key={i} x={p.x} y={H - 4}
-            textAnchor="middle" fontSize="9" fill={C.muted} fontFamily="Segoe UI, sans-serif">
-            {p.label}
-          </text>
-        ))}
-
-        {/* Axis line */}
-        <line x1={PAD.l} y1={PAD.t + cH} x2={PAD.l + cW} y2={PAD.t + cH}
-          stroke={C.border} strokeWidth="1" />
-        <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t + cH}
-          stroke={C.border} strokeWidth="1" />
-      </svg>
-    </div>
-  );
-}
-
-// ─── DeltaBar ─────────────────────────────────────────────────────────────────
-
-function DeltaBar({ value, max }: { value: number; max: number }) {
-  if (max === 0) return null;
-  const pct = Math.min(Math.abs(value) / max * 100, 100);
-  const color = value > 0 ? C.bad : value < 0 ? C.good : C.muted;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <div style={{ width: 60, height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3 }} />
-      </div>
-      <span style={{ fontSize: 11, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' as const }}>
-        {deltaSign(value)}
-      </span>
-    </div>
-  );
-}
-
-// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function OnerationMonitorPage(): React.ReactElement {
-  const [period, setPeriod] = useState<PeriodFilter>('all');
+  const { data: scans, loading: scansLoading } = useApi(listScans, []);
+  const completedScans = useMemo(
+    () => (scans ?? []).filter(sc => sc.status === 'completed' || (sc.totalFiles ?? 0) > 0),
+    [scans],
+  );
 
-  const { data: scans, loading, error } = useApi(listScans, []);
+  const [scanId, setScanId] = useState('');
+  const [windowKey, setWindowKey] = useState<Window>('month');
+  const [field, setField] = useState<Field>('modified');
+  const [limit, setLimit] = useState<number>(80);
+  const [search, setSearch] = useState('');
 
-  // ── Constrói os pontos de crescimento a partir dos scans concluídos
-  const growthPoints: GrowthPoint[] = useMemo(() => {
-    if (!scans) return [];
+  const [data, setData] = useState<TopCostItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    const cutoff = periodCutoff(period);
-    const filtered = scans
-      .filter(sc =>
-        sc.status === 'completed' &&
-        sc.totalFiles != null && sc.totalFiles > 0 &&
-        new Date(sc.createdAt) >= cutoff,
-      )
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  useEffect(() => {
+    if (!scanId && completedScans.length > 0) setScanId(completedScans[0].id);
+  }, [completedScans, scanId]);
 
-    return filtered.map((sc, i): GrowthPoint => {
-      const prev = filtered[i - 1];
-      return {
-        scanId:     sc.id,
-        date:       sc.createdAt,
-        totalFiles: sc.totalFiles ?? 0,
-        totalBytes: sc.totalBytes ?? 0,
-        deltaFiles: prev != null ? (sc.totalFiles ?? 0) - (prev.totalFiles ?? 0) : undefined,
-        deltaBytes: prev != null ? (sc.totalBytes ?? 0) - (prev.totalBytes ?? 0) : undefined,
-      };
-    });
-  }, [scans, period]);
+  useEffect(() => {
+    if (!scanId) return;
+    setLoading(true);
+    setError(null);
+    get<TopCostResp>(`/api/analytics/topcost/${scanId}`, { window: windowKey, field, limit })
+      .then(resp => setData(resp.items ?? []))
+      .catch(err => { setError(err instanceof Error ? err.message : 'Erro ao carregar dados'); setData([]); })
+      .finally(() => setLoading(false));
+  }, [scanId, windowKey, field, limit]);
 
-  // ── Dados para os charts
-  const bytesChartData: ChartPoint[] = growthPoints.map(p => ({
-    label: fmtDateShort(p.date),
-    value: p.totalBytes,
-  }));
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return data;
+    return data.filter(it =>
+      (it.siteName ?? '').toLowerCase().includes(q) ||
+      (it.driveName ?? '').toLowerCase().includes(q) ||
+      (it.fullPath ?? '').toLowerCase().includes(q) ||
+      (it.name ?? '').toLowerCase().includes(q) ||
+      (it.modifiedBy ?? '').toLowerCase().includes(q),
+    );
+  }, [data, search]);
 
-  const filesChartData: ChartPoint[] = growthPoints.map(p => ({
-    label: fmtDateShort(p.date),
-    value: p.totalFiles,
-  }));
-
-  // ── Deltas máximos para barras proporcionais
-  const maxDeltaBytes = Math.max(...growthPoints.map(p => Math.abs(p.deltaBytes ?? 0)), 1);
-  const maxDeltaFiles = Math.max(...growthPoints.map(p => Math.abs(p.deltaFiles ?? 0)), 1);
-
-  // ── KPIs de crescimento total no período
-  const firstPoint = growthPoints[0];
-  const lastPoint  = growthPoints[growthPoints.length - 1];
-  const totalDeltaBytes = lastPoint && firstPoint
-    ? lastPoint.totalBytes - firstPoint.totalBytes
-    : null;
-  const totalDeltaFiles = lastPoint && firstPoint
-    ? lastPoint.totalFiles - firstPoint.totalFiles
-    : null;
+  function handleExport() {
+    if (filtered.length === 0) return;
+    exportCsv(filtered, `oneration-${windowKey}-${scanId.slice(0, 12)}.csv`);
+  }
 
   return (
     <div style={s.page}>
-
-      {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={s.header}>
         <div>
-          <div style={s.pageTitle}>Monitor de Oneração</div>
-          <div style={s.pageSub}>Evolução do consumo de armazenamento entre scans</div>
+          <div style={s.pageTitle}>Arquivos que mais oneraram o SharePoint</div>
+          <div style={s.pageSub}>Top itens por período. Métrica: <strong>Total</strong> (arquivo + versões).</div>
         </div>
         <Link to="/" style={s.breadcrumb}>← Dashboard</Link>
       </div>
 
-      {/* ── Filtro de período ─────────────────────────────────────────────── */}
-      <div style={s.periodBar}>
-        <span style={s.periodLabel}>Período:</span>
-        {PERIOD_OPTIONS.map(opt => (
-          <button
-            key={opt.value}
-            style={{
-              ...s.periodBtn,
-              background:  period === opt.value ? C.accent : C.panel,
-              color:       period === opt.value ? '#fff'    : C.text,
-              borderColor: period === opt.value ? C.accent  : C.border,
-            }}
-            onClick={() => setPeriod(opt.value)}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div style={s.controls}>
+        <div style={s.ctrlGroup}>
+          <label style={s.ctrlLabel}>Scan</label>
+          {scansLoading ? (<div style={{ fontSize: 12, color: C.muted }}>Carregando…</div>) : (
+            <select value={scanId} onChange={e => setScanId(e.target.value)} style={s.select}>
+              <option value="">— selecione —</option>
+              {completedScans.map(sc => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.id.slice(0, 16)}… · {fmtNum(sc.totalFiles)} arqs · {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div style={s.ctrlGroup}>
+          <label style={s.ctrlLabel}>Período</label>
+          <div style={s.segCtl}>
+            {WINDOW_OPTIONS.map(opt => (
+              <button key={opt.value}
+                style={{ ...s.segBtn,
+                  background: windowKey === opt.value ? C.accent : C.panel,
+                  color: windowKey === opt.value ? '#fff' : C.text }}
+                onClick={() => setWindowKey(opt.value)}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={s.ctrlGroup}>
+          <label style={s.ctrlLabel}>Campo de data</label>
+          <select value={field} onChange={e => setField(e.target.value as Field)} style={s.select}>
+            <option value="modified">Por LastModified</option>
+            <option value="created">Por Created</option>
+          </select>
+        </div>
+        <div style={s.ctrlGroup}>
+          <label style={s.ctrlLabel}>Limite</label>
+          <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={s.select}>
+            {LIMIT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div style={{ ...s.ctrlGroup, flex: 1, minWidth: 200 }}>
+          <label style={s.ctrlLabel}>Filtrar</label>
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="site, caminho, pessoa…" style={{ ...s.select, width: '100%' }} />
+        </div>
+        <div style={s.ctrlGroup}>
+          <label style={s.ctrlLabel}>&nbsp;</label>
+          <button style={{ ...s.btn, ...s.btnPrimary }} onClick={handleExport} disabled={filtered.length === 0}>↓ CSV</button>
+        </div>
       </div>
 
-      {/* ── Estado de carregamento ────────────────────────────────────────── */}
-      {loading && <div style={s.loadingMsg}>Carregando scans…</div>}
-      {error   && <div style={s.errorMsg}>⚠ {error}</div>}
+      <div style={s.callout}>
+        <strong>Como ler:</strong> "Arquivo" = tamanho atual. "Versões" e "#Vers" dependem do enrichment via Graph.
+        "Total" = Arquivo + Versões. Atualiza quando scan + enrichment terminam.
+      </div>
 
-      {!loading && growthPoints.length === 0 && (
+      {error && <div style={s.errorMsg}>⚠ {error}</div>}
+      {loading && <div style={s.loadingMsg}>Carregando…</div>}
+
+      {!loading && filtered.length === 0 && !error && (
         <div style={s.emptyPanel}>
-          <div style={s.emptyTitle}>Sem dados para o período selecionado</div>
-          <div style={s.emptySub}>
-            São necessários scans concluídos no período para exibir a tendência.{' '}
-            <Link to="/scans" style={{ color: C.accent }}>Iniciar um scan →</Link>
-          </div>
+          <div style={s.emptyTitle}>Nenhum arquivo no período</div>
+          <div style={s.emptySub}>Expanda a janela (Semana → Mês → Ano) ou aguarde o enrichment.</div>
         </div>
       )}
 
-      {growthPoints.length > 0 && (
-        <>
-          {/* ── KPI cards ──────────────────────────────────────────────────── */}
-          <div style={s.kpiStrip}>
-            <KpiCard
-              label="Scans no período"
-              value={String(growthPoints.length)}
-            />
-            <KpiCard
-              label="Volume atual"
-              value={fmtBytes(lastPoint?.totalBytes)}
-            />
-            <KpiCard
-              label="Arquivos atuais"
-              value={fmtNum(lastPoint?.totalFiles)}
-            />
-            {totalDeltaBytes != null && growthPoints.length > 1 && (
-              <KpiCard
-                label="Δ Volume (período)"
-                value={(totalDeltaBytes >= 0 ? '+' : '') + fmtBytes(totalDeltaBytes)}
-                color={totalDeltaBytes > 0 ? C.bad : C.good}
-              />
-            )}
-            {totalDeltaFiles != null && growthPoints.length > 1 && (
-              <KpiCard
-                label="Δ Arquivos (período)"
-                value={(totalDeltaFiles >= 0 ? '+' : '') + fmtNum(totalDeltaFiles)}
-                color={totalDeltaFiles > 0 ? C.bad : C.good}
-              />
-            )}
+      {filtered.length > 0 && (
+        <div style={s.tablePanel}>
+          <div style={s.tablePanelHeader}>
+            <span style={s.panelTitle}>Top {fmtNum(filtered.length)} arquivos</span>
+            <span style={s.countBadge}>∑ {fmtBytes(filtered.reduce((a, it) => a + (it.totalBytes ?? it.sizeBytes ?? 0), 0))}</span>
           </div>
-
-          {/* ── Charts ─────────────────────────────────────────────────────── */}
-          <div style={s.chartsRow}>
-            <div style={s.chartPanel}>
-              <AreaLineChart
-                data={bytesChartData}
-                color={C.accent}
-                formatY={fmtBytes}
-                title="Volume total por scan (bytes)"
-              />
-            </div>
-            <div style={s.chartPanel}>
-              <AreaLineChart
-                data={filesChartData}
-                color={C.warn}
-                formatY={v => fmtNum(Math.round(v))}
-                title="Total de arquivos por scan"
-              />
-            </div>
-          </div>
-
-          {/* ── Tabela de comparação ──────────────────────────────────────── */}
-          <div style={s.tablePanel}>
-            <div style={s.tablePanelHeader}>
-              <span style={s.panelTitle}>Comparação entre scans</span>
-              <span style={s.countBadge}>{growthPoints.length}</span>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={s.th}>Scan</th>
-                    <th style={s.th}>Data</th>
-                    <th style={{ ...s.th, textAlign: 'right' as const }}>Arquivos</th>
-                    <th style={{ ...s.th, textAlign: 'right' as const }}>Volume</th>
-                    <th style={{ ...s.th, width: 140 }}>Δ Arquivos</th>
-                    <th style={{ ...s.th, width: 140 }}>Δ Volume</th>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Site</th><th style={s.th}>Biblioteca</th><th style={s.th}>Caminho</th>
+                  <th style={s.th}>Últ. modif.</th><th style={s.th}>Colaborador</th>
+                  <th style={{ ...s.th, textAlign: 'right' as const }}>Arquivo</th>
+                  <th style={{ ...s.th, textAlign: 'right' as const }}>#Vers</th>
+                  <th style={{ ...s.th, textAlign: 'right' as const }}>Versões</th>
+                  <th style={{ ...s.th, textAlign: 'right' as const }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((it, idx) => (
+                  <tr key={`${it.siteId}-${it.fullPath}-${idx}`} style={idx % 2 === 0 ? s.trEven : s.trOdd}>
+                    <td style={s.td}><div style={s.cellEllipsis}>{it.siteName ?? '—'}</div></td>
+                    <td style={s.td}><div style={s.cellEllipsis}>{it.driveName ?? '—'}</div></td>
+                    <td style={s.td}>
+                      {it.webUrl
+                        ? <a href={it.webUrl} target="_blank" rel="noreferrer" style={s.fileLink} title={it.fullPath}>
+                            <div style={s.cellEllipsisWide}>{it.name ?? it.fullPath ?? '—'}</div></a>
+                        : <div style={s.cellEllipsisWide} title={it.fullPath}>{it.name ?? it.fullPath ?? '—'}</div>}
+                    </td>
+                    <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(it.modifiedAt ?? it.modified)}</td>
+                    <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{it.modifiedBy ?? '—'}</div></td>
+                    <td style={{ ...s.td, ...s.right }}>{fmtBytes(it.sizeBytes)}</td>
+                    <td style={{ ...s.td, ...s.right }}>{fmtNum(it.versionCount)}</td>
+                    <td style={{ ...s.td, ...s.right }}>{fmtBytes(it.versionsBytes)}</td>
+                    <td style={{ ...s.td, ...s.right, fontWeight: 700 }}>{fmtBytes(it.totalBytes ?? it.sizeBytes)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {[...growthPoints].reverse().map((pt, idx) => (
-                    <tr key={pt.scanId} style={idx % 2 === 0 ? s.trEven : s.trOdd}>
-                      <td style={s.td}>
-                        <span style={s.mono}>{pt.scanId.slice(0, 14)}…</span>
-                      </td>
-                      <td style={{ ...s.td, ...s.cellMuted }}>{fmtDateFull(pt.date)}</td>
-                      <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' as const }}>
-                        {fmtNum(pt.totalFiles)}
-                      </td>
-                      <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' as const }}>
-                        {fmtBytes(pt.totalBytes)}
-                      </td>
-                      <td style={s.td}>
-                        {pt.deltaFiles != null
-                          ? <DeltaBar value={pt.deltaFiles} max={maxDeltaFiles} />
-                          : <span style={{ color: C.muted, fontSize: 11 }}>— (baseline)</span>}
-                      </td>
-                      <td style={s.td}>
-                        {pt.deltaBytes != null
-                          ? <DeltaBar value={pt.deltaBytes} max={maxDeltaBytes} />
-                          : <span style={{ color: C.muted, fontSize: 11 }}>— (baseline)</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={s.legendRow}>
-              <span style={{ color: C.bad,  fontWeight: 700, fontSize: 11 }}>■</span>
-              <span style={{ fontSize: 11, color: C.muted }}>Crescimento (oneração)</span>
-              <span style={{ color: C.good, fontWeight: 700, fontSize: 11, marginLeft: 12 }}>■</span>
-              <span style={{ fontSize: 11, color: C.muted }}>Redução</span>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </>
+        </div>
       )}
-
     </div>
   );
 }
-
-// ─── KpiCard ──────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div style={s.kpiCard}>
-      <div style={{ ...s.kpiValue, color: color ?? C.text }}>{value}</div>
-      <div style={s.kpiLabel}>{label}</div>
-    </div>
-  );
-}
-
-// ─── Estilos ──────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
-  page: {
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-    color:      C.text,
-    display:    'flex',
-    flexDirection: 'column',
-    gap:        12,
-  },
-
-  header: {
-    display:        'flex',
-    justifyContent: 'space-between',
-    alignItems:     'flex-start',
-    flexWrap:       'wrap',
-    gap:            8,
-  },
+  page: { fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", color: C.text, display: 'flex', flexDirection: 'column', gap: 12 },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 },
   pageTitle: { fontSize: 22, fontWeight: 800, lineHeight: 1.2 },
-  pageSub:   { fontSize: 12, color: C.muted, marginTop: 2 },
+  pageSub: { fontSize: 12, color: C.muted, marginTop: 2 },
   breadcrumb: { fontSize: 12, color: C.muted, textDecoration: 'none', fontWeight: 600, alignSelf: 'flex-end' },
-
-  // Period filter
-  periodBar: {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          6,
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding:      '10px 14px',
-    flexWrap:     'wrap',
-  },
-  periodLabel: { fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em', marginRight: 4 },
-  periodBtn: {
-    padding:      '5px 14px',
-    border:       '1px solid',
-    borderRadius: 4,
-    fontSize:     12,
-    fontWeight:   600,
-    cursor:       'pointer',
-    fontFamily:   'inherit',
-    transition:   'background .12s, color .12s',
-  },
-
-  // KPIs
-  kpiStrip: {
-    display:             'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-    gap:                 10,
-  },
-  kpiCard: {
-    background:    C.panel,
-    border:        `1px solid ${C.border}`,
-    borderRadius:  6,
-    padding:       '12px 16px',
-    display:       'flex',
-    flexDirection: 'column',
-    gap:           2,
-  },
-  kpiValue: { fontSize: 20, fontWeight: 800, lineHeight: 1.1 },
-  kpiLabel: { fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' },
-
-  // Charts
-  chartsRow: {
-    display:             'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap:                 12,
-  },
-  chartPanel: {
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding:      '14px 16px',
-  },
-  chartWrap: { display: 'flex', flexDirection: 'column', gap: 8 },
-  chartTitle: { fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' },
-  chartEmpty: { fontSize: 12, color: C.muted, textAlign: 'center', padding: '20px 0' },
-
-  // Table
-  tablePanel: {
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    overflow:     'hidden',
-  },
-  tablePanelHeader: {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          8,
-    padding:      '10px 14px',
-    borderBottom: `1px solid ${C.border}`,
-    background:   '#f7f9fb',
-  },
-  panelTitle: { fontSize: 12, fontWeight: 800, color: C.text, textTransform: 'uppercase', letterSpacing: '.06em' },
-  countBadge: {
-    background: C.accent, color: '#fff',
-    fontSize: 10, fontWeight: 700,
-    padding: '2px 7px', borderRadius: 10,
-  },
-  legendRow: {
-    display:    'flex',
-    alignItems: 'center',
-    gap:        4,
-    padding:    '10px 14px',
-    borderTop:  `1px solid ${C.border}`,
-    background: '#f7f9fb',
-  },
-
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th: {
-    padding: '8px 10px', textAlign: 'left',
-    fontWeight: 700, fontSize: 10, color: C.muted,
-    textTransform: 'uppercase', letterSpacing: '.05em',
-    background: '#f7f9fb', borderBottom: `2px solid ${C.border}`,
-    whiteSpace: 'nowrap',
-  },
-  trEven: { background: C.panel },
-  trOdd:  { background: '#f9fafb' },
-  td:     { padding: '7px 10px', verticalAlign: 'middle', borderBottom: '1px solid #edf0f4' },
-  cellMuted: { color: C.muted, fontSize: 11 },
-  mono:      { fontFamily: 'monospace', fontSize: 11 },
-
+  controls: { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px' },
+  ctrlGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
+  ctrlLabel: { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em' },
+  select: { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12, color: C.text, background: C.panel, fontFamily: 'inherit', cursor: 'pointer', minWidth: 130 },
+  segCtl: { display: 'flex', border: `1px solid ${C.border}`, borderRadius: 4, overflow: 'hidden' },
+  segBtn: { padding: '6px 12px', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  btn: { padding: '6px 14px', borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid transparent' },
+  btnPrimary: { background: C.accent, color: '#fff', borderColor: C.accent },
+  callout: { background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 5, padding: '10px 14px', fontSize: 12, color: '#78350f' },
   loadingMsg: { fontSize: 13, color: C.muted, padding: '20px 0' },
-  errorMsg:   { fontSize: 13, color: C.bad,   fontWeight: 600 },
-
-  emptyPanel: {
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding:      '40px 20px',
-    textAlign:    'center',
-  },
+  errorMsg: { fontSize: 13, color: C.bad, fontWeight: 600, padding: '12px 14px', background: '#fff5f5', borderRadius: 5, border: '1px solid #fca5a5' },
+  emptyPanel: { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '40px 20px', textAlign: 'center' },
   emptyTitle: { fontSize: 15, fontWeight: 700, marginBottom: 8 },
-  emptySub:   { fontSize: 13, color: C.muted },
+  emptySub: { fontSize: 13, color: C.muted },
+  tablePanel: { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' },
+  tablePanelHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${C.border}`, background: '#f7f9fb' },
+  panelTitle: { fontSize: 12, fontWeight: 800, color: C.text, textTransform: 'uppercase', letterSpacing: '.06em' },
+  countBadge: { background: C.accent, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10 },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
+  th: { padding: '8px 10px', textAlign: 'left' as const, fontWeight: 700, fontSize: 10, color: C.muted, textTransform: 'uppercase' as const, letterSpacing: '.05em', background: '#f7f9fb', borderBottom: `2px solid ${C.border}`, whiteSpace: 'nowrap' as const },
+  trEven: { background: C.panel }, trOdd: { background: '#f9fafb' },
+  td: { padding: '7px 10px', verticalAlign: 'middle', borderBottom: '1px solid #edf0f4' },
+  right: { textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' as const },
+  cellMuted: { color: C.muted, fontSize: 11 },
+  cellEllipsis: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 180 },
+  cellEllipsisWide: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 320 },
+  fileLink: { color: C.accent, textDecoration: 'none', fontWeight: 500 },
 };

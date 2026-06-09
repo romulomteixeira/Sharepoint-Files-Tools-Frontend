@@ -19,6 +19,12 @@ import { listScans } from '../api/scans.api';
 import { getInventorySummary, getInventorySites } from '../api/inventory.api';
 import { getInventoryFiles } from '../api/inventory.api';
 import { requestPurgeToken, executePurgeJob, getPurgeJobStatus } from '../api/purge.api';
+import {
+  simulateVersionRetention,
+  requestVersionRetentionConfirmToken,
+  executeVersionRetentionJob,
+} from '../api/version-retention.api';
+import type { VersionRetentionPreview, VersionRetentionRule } from '../api/version-retention.api';
 import type { FileItem, SiteRollup, JobStatusDetail } from '../types';
 import type { PurgeRule } from '../api/purge.api';
 import { ApiClientError } from '../api/client';
@@ -274,16 +280,34 @@ function JobProgress({ job }: { job: JobStatusDetail }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+type Mode = 'files' | 'versions';
+
 export default function ExpurgoPage(): React.ReactElement {
+  // ── Modo (arquivos inteiros vs apenas versões antigas)
+  const [mode, setMode] = useState<Mode>('files');
+
   // ── Step atual
   const [step, setStep] = useState<Step>('config');
 
-  // ── Config
+  // ── Config (modo "files")
   const [scanId,     setScanId]     = useState('');
   const [filterExt,  setFilterExt]  = useState('');
   const [filterAge,  setFilterAge]  = useState('');
   const [filterSize, setFilterSize] = useState('');
   const [filterSite, setFilterSite] = useState('');
+
+  // ── Config (modo "versions") — range de datas + N versões a manter
+  const [versFromDate, setVersFromDate] = useState('2000-01-01');
+  const [versToDate, setVersToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [versKeepN, setVersKeepN] = useState('3');
+  const [versMinSizeMB, setVersMinSizeMB] = useState('');
+
+  // ── Preview específico de versões
+  const [versPreview, setVersPreview] = useState<VersionRetentionPreview | null>(null);
+  const [versLoading, setVersLoading] = useState(false);
+  const [versError, setVersError] = useState<string | null>(null);
+  const [versJobLoading, setVersJobLoading] = useState(false);
+  const [versJobInfo, setVersJobInfo] = useState<{ jobId: string; tasksSeeded?: number; message?: string } | null>(null);
 
   // ── Preview
   const [previewFiles,   setPreviewFiles]   = useState<FileItem[]>([]);
@@ -422,6 +446,53 @@ export default function ExpurgoPage(): React.ReactElement {
     }, JOB_POLL_MS);
   }
 
+  function buildVersionsRule(): VersionRetentionRule {
+    return {
+      scanId,
+      fromDate: versFromDate ? new Date(versFromDate + 'T00:00:00Z').toISOString() : undefined,
+      toDate: versToDate ? new Date(versToDate + 'T23:59:59Z').toISOString() : undefined,
+      keepRecentVersions: Number(versKeepN.trim()) || 0,
+      siteIds: filterSite ? [filterSite] : undefined,
+      extensions: filterExt ? [filterExt] : undefined,
+      minSizeBytes: versMinSizeMB ? Number(versMinSizeMB) * 1024 * 1024 : undefined,
+      sampleLimit: 100,
+    };
+  }
+
+  async function runVersionsSimulate() {
+    if (!scanId) return;
+    setVersPreview(null);
+    setVersError(null);
+    setVersLoading(true);
+    try {
+      const preview = await simulateVersionRetention(buildVersionsRule());
+      setVersPreview(preview);
+    } catch (err) {
+      setVersError(err instanceof ApiClientError ? err.message : 'Erro ao simular expurgo de versões.');
+    } finally {
+      setVersLoading(false);
+    }
+  }
+
+  async function runVersionsExecute() {
+    if (!versPreview) return;
+    const ok = window.confirm(
+      `IRREVERSÍVEL!\n\n${fmtNum(versPreview.totalVersions)} versão(ões) em ${fmtNum(versPreview.filesAffected)} arquivo(s) (${fmtBytes(versPreview.totalBytes)}) serão removidas via Graph.\n\nMantém ${versPreview.keepRecentVersions} versão(ões) mais recente(s) por arquivo.\n\nConfirmar?`,
+    );
+    if (!ok) return;
+    setVersJobLoading(true);
+    try {
+      const rule = buildVersionsRule();
+      const { confirmToken } = await requestVersionRetentionConfirmToken(rule);
+      const job = await executeVersionRetentionJob(rule, confirmToken);
+      setVersJobInfo(job);
+    } catch (err) {
+      setVersError(err instanceof ApiClientError ? err.message : 'Erro ao executar expurgo de versões.');
+    } finally {
+      setVersJobLoading(false);
+    }
+  }
+
   // ── Derivados
   const rule = buildRule(scanId, filterExt, filterAge, filterSize, filterSite);
   const ruleDesc = describeRule(rule);
@@ -484,9 +555,200 @@ export default function ExpurgoPage(): React.ReactElement {
           })}
         </div>
 
+        {/* ── Seletor de modo ──────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'center',
+          background: C.panel, border: `1px solid ${C.border}`,
+          borderRadius: 6, padding: '10px 16px', flexWrap: 'wrap',
+        }}>
+          <button
+            style={{
+              padding: '6px 16px',
+              border: '1px solid', borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              background: mode === 'files' ? C.accent : C.panel,
+              color: mode === 'files' ? '#fff' : C.text,
+              borderColor: mode === 'files' ? C.accent : C.border,
+            }}
+            onClick={() => setMode('files')}
+          >🗑 Expurgar arquivos</button>
+          <button
+            style={{
+              padding: '6px 16px',
+              border: '1px solid', borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              background: mode === 'versions' ? C.accent : C.panel,
+              color: mode === 'versions' ? '#fff' : C.text,
+              borderColor: mode === 'versions' ? C.accent : C.border,
+            }}
+            onClick={() => setMode('versions')}
+          >🕐 Expurgar versões antigas</button>
+          <div style={{ fontSize: 11, color: C.muted, fontStyle: 'italic', paddingLeft: 8, flex: 1 }}>
+            {mode === 'files'
+              ? 'Remove arquivos inteiros do SharePoint.'
+              : 'Remove apenas versões antigas (preserva o arquivo atual + N versões recentes).'}
+          </div>
+        </div>
+
         {/* ══════════════════════════════════════════════════════════════════ */}
-        {/*  STEP 1 — CONFIGURAR                                              */}
+        {/*  MODO VERSÕES                                                     */}
         {/* ══════════════════════════════════════════════════════════════════ */}
+        {mode === 'versions' && (
+          <div style={s.configPanel}>
+            <div style={s.panelHeader}>
+              <span style={s.panelTitle}>Expurgo de versões antigas</span>
+            </div>
+            <div style={s.configGrid}>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Scan *</label>
+                <select value={scanId} onChange={e => setScanId(e.target.value)} style={s.select}>
+                  <option value="">— selecione —</option>
+                  {completedScans.map(sc => (
+                    <option key={sc.id} value={sc.id}>
+                      {sc.id.slice(0, 16)}… · {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
+                    </option>
+                  ))}
+                </select>
+                {summary && scanId && summary.versioningEnabled && (
+                  <div style={s.scanMini}>
+                    {fmtNum(summary.versionsDone ?? summary.versionedFiles)} arq. versionados ·{' '}
+                    {fmtNum(summary.versionsTotal ?? summary.totalVersions)} versões · {fmtBytes(summary.versionsBytes)}
+                  </div>
+                )}
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Versões modificadas DESDE *</label>
+                <input type="date" value={versFromDate} onChange={e => setVersFromDate(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }} />
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>ATÉ *</label>
+                <input type="date" value={versToDate} onChange={e => setVersToDate(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }} />
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Manter N versões mais recentes</label>
+                <input type="number" min={0} value={versKeepN} onChange={e => setVersKeepN(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }}
+                  title="As N versões mais recentes serão preservadas mesmo no intervalo." />
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Site (opcional)</label>
+                <select value={filterSite} onChange={e => setFilterSite(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }}>
+                  <option value="">Todos os sites</option>
+                  {sites.map(st => (
+                    <option key={st.siteId} value={st.siteId}>{st.siteName || st.siteUrl}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Extensão (opcional)</label>
+                <select value={filterExt} onChange={e => setFilterExt(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }}>
+                  <option value="">Todas</option>
+                  {(summary?.topExtensions ?? []).map(e => (
+                    <option key={e.extension} value={e.extension}>{e.extension || '(sem ext)'}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Tamanho mín. (MB)</label>
+                <input type="number" min={0} value={versMinSizeMB} onChange={e => setVersMinSizeMB(e.target.value)}
+                  disabled={!scanId} style={{ ...s.select, opacity: !scanId ? 0.5 : 1 }} placeholder="—" />
+              </div>
+            </div>
+            <div style={s.ruleSummary}>
+              <span style={s.ruleSummaryLabel}>Regra:</span>
+              <span style={s.ruleSummaryText}>
+                Versões entre <strong>{versFromDate || '—'}</strong> e <strong>{versToDate || '—'}</strong>,
+                preservando as <strong>{versKeepN || '0'}</strong> mais recentes
+                {filterSite && ' · site filtrado'}{filterExt && ` · ext: ${filterExt}`}
+                {versMinSizeMB && ` · ≥ ${versMinSizeMB} MB`}
+              </span>
+            </div>
+            <button
+              style={{ ...s.btn, ...s.btnAccent, opacity: !scanId ? 0.4 : 1, marginTop: 4 }}
+              disabled={!scanId || versLoading}
+              onClick={runVersionsSimulate}
+            >{versLoading ? '🔍 Calculando…' : '🔍 Simular — ver versões que seriam removidas'}</button>
+
+            {versError && <div style={{ ...s.warnBox, background: '#fff5f5', borderColor: '#fca5a5', color: DANGER }}>⚠ {versError}</div>}
+
+            {versPreview && (
+              <>
+                <div style={s.impactBar}>
+                  <div style={s.impactStat}>
+                    <span style={s.impactValue}>{fmtNum(versPreview.totalVersions)}</span>
+                    <span style={s.impactLabel}>Versões a remover</span>
+                  </div>
+                  <div style={s.impactDivider} />
+                  <div style={s.impactStat}>
+                    <span style={s.impactValue}>{fmtNum(versPreview.filesAffected)}</span>
+                    <span style={s.impactLabel}>Arquivos afetados</span>
+                  </div>
+                  <div style={s.impactDivider} />
+                  <div style={s.impactStat}>
+                    <span style={s.impactValue}>{fmtBytes(versPreview.totalBytes)}</span>
+                    <span style={s.impactLabel}>Espaço a liberar</span>
+                  </div>
+                  <div style={s.impactDivider} />
+                  <div style={s.impactNote}>Mantém {versPreview.keepRecentVersions} versão(ões) recentes</div>
+                </div>
+                {versPreview.sample.length > 0 && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr>
+                          <th style={s.th}>Arquivo</th><th style={s.th}>Site</th><th style={s.th}>Ext</th>
+                          <th style={{ ...s.th, textAlign: 'right' as const }}>Versões</th>
+                          <th style={{ ...s.th, textAlign: 'right' as const }}>Bytes</th>
+                          <th style={s.th}>Mais antiga</th><th style={s.th}>Mais recente</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {versPreview.sample.map((r, idx) => (
+                          <tr key={`${r.fullPath}-${idx}`} style={idx % 2 === 0 ? s.trEven : s.trOdd}>
+                            <td style={s.td}>
+                              <div style={s.fileName}>
+                                {r.webUrl ? <a href={r.webUrl} target="_blank" rel="noreferrer" style={s.fileLink} title={r.fullPath}>{r.name}</a>
+                                  : <span title={r.fullPath}>{r.name}</span>}
+                              </div>
+                            </td>
+                            <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{r.siteName}</div></td>
+                            <td style={s.td}><span style={s.extBadge}>{r.extension || '—'}</span></td>
+                            <td style={{ ...s.td, textAlign: 'right' as const, fontWeight: 700 }}>{fmtNum(r.versionsAffected)}</td>
+                            <td style={{ ...s.td, textAlign: 'right' as const }}>{fmtBytes(r.bytesAffected)}</td>
+                            <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(r.oldestAffectedAt ?? undefined)}</td>
+                            <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(r.newestAffectedAt ?? undefined)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {versPreview.totalVersions > 0 && !versJobInfo && (
+                  <div style={s.execBar}>
+                    <div style={s.execWarning}>⚠ <strong>Irreversível.</strong> Versões removidas via Graph.</div>
+                    <button style={{ ...s.btn, ...s.btnDanger, opacity: versJobLoading ? 0.5 : 1 }}
+                      disabled={versJobLoading} onClick={runVersionsExecute}>
+                      {versJobLoading ? '⏳ Solicitando token…' : '🗑 Executar Expurgo de Versões'}
+                    </button>
+                  </div>
+                )}
+                {versJobInfo && (
+                  <div style={{ ...s.warnBox, background: '#f0fff4', borderColor: '#86efac', color: C.good, marginTop: 12 }}>
+                    ✓ Job <strong style={s.mono}>{versJobInfo.jobId.slice(0, 16)}…</strong> criado.
+                    {versJobInfo.tasksSeeded != null && ` ${versJobInfo.tasksSeeded} task(s) enfileiradas.`}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/*  STEP 1 — CONFIGURAR (modo files)                                 */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {mode === 'files' && (<>
         <div style={s.configPanel}>
           <div style={s.panelHeader}>
             <span style={s.panelTitle}>Configuração das Regras</span>
@@ -749,6 +1011,8 @@ export default function ExpurgoPage(): React.ReactElement {
             </div>
           </div>
         )}
+
+        </>)}{/* fim do mode === 'files' */}
 
       </div>
     </>
