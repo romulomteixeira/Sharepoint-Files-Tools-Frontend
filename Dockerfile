@@ -26,8 +26,8 @@ RUN npm run build
 # Alpine 3.23 inclui nginx >= 1.28.3-r3 (corrige CVE-2026-49975 e CVE-2026-9256).
 FROM alpine:3.23 AS runtime
 
-# hadolint ignore=DL3018
 # nginx não tem versão pinada intencionalmente: `apk upgrade` garante patches futuros.
+# hadolint ignore=DL3018
 RUN apk upgrade --no-cache \
     && apk add --no-cache nginx \
     && rm -f /etc/nginx/http.d/default.conf
