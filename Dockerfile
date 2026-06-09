@@ -20,11 +20,12 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 # ─── Stage 2: servir com Nginx ────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.28-alpine AS runtime
 
-# Aplica todos os patches de segurança disponíveis no Alpine
-# (equivalente ao apt-get upgrade do backend — corrige CVEs nos pacotes do SO)
+# Aplica todos os patches de segurança disponíveis no Alpine e garante
+# que libxml2 esteja na versão mais recente (corrige CVEs libxml2 em Alpine < 3.21).
 RUN apk upgrade --no-cache \
+    && apk add --no-cache libxml2 \
     && rm /etc/nginx/conf.d/default.conf
 
 # Copiar configuração customizada
