@@ -1,10 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { createScan, searchSites } from "../scans.api";
+import { createScan, listScans, searchSites } from "../scans.api";
 import { server } from "../../test/server";
-
-const envelope = <T>(data: T) =>
-  HttpResponse.json({ success: true, data, error: null, meta: {} });
 
 describe("scans.api", () => {
   it("envia busca e limite ao pesquisar sites", async () => {
@@ -13,13 +10,14 @@ describe("scans.api", () => {
         const url = new URL(request.url);
         expect(url.searchParams.get("search")).toBe("financeiro");
         expect(url.searchParams.get("top")).toBe("25");
-        return envelope([
-          {
+        return HttpResponse.json({
+          items: [{
             id: "site-1",
             displayName: "Financeiro",
             webUrl: "https://tenant/sites/financeiro",
-          },
-        ]);
+          }],
+          note: "resultado do Graph",
+        });
       }),
     );
 
@@ -32,18 +30,15 @@ describe("scans.api", () => {
     ]);
   });
 
-  it("mantém siteIds e enableVersioning no payload do scan parcial", async () => {
+  it("adapta siteIds ao contrato homologado do scan parcial", async () => {
     server.use(
       http.post("/api/scans", async ({ request }) => {
         await expect(request.json()).resolves.toEqual({
-          siteIds: ["site-1", "site-2"],
-          enableVersioning: true,
+          allSites: false,
+          sites: ["site-1", "site-2"],
+          options: { enableVersioning: true },
         });
-        return envelope({
-          id: "scan-1",
-          status: "pending",
-          createdAt: "2026-06-09T00:00:00Z",
-        });
+        return HttpResponse.json({ scanId: "scan-1" });
       }),
     );
 
@@ -52,5 +47,34 @@ describe("scans.api", () => {
       enableVersioning: true,
     });
     expect(scan.id).toBe("scan-1");
+    expect(scan.status).toBe("pending");
+  });
+
+  it("normaliza a lista legada de scans", async () => {
+    server.use(
+      http.get("/api/scans/list", () =>
+        HttpResponse.json({
+          items: [{
+            scanId: "scan-2",
+            status: "DONE",
+            createdAt: "2026-06-09T00:00:00Z",
+            sitesAttempted: 2,
+            files: 10,
+            bytes: 2048,
+            request: { allSites: false, sites: ["site-1", "site-2"] },
+          }],
+        }),
+      ),
+    );
+
+    await expect(listScans()).resolves.toEqual([
+      expect.objectContaining({
+        id: "scan-2",
+        status: "completed",
+        totalSites: 2,
+        totalFiles: 10,
+        totalBytes: 2048,
+      }),
+    ]);
   });
 });
