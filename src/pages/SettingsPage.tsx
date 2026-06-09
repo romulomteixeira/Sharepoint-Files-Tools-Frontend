@@ -16,7 +16,11 @@ import {
   getConfig,
   getSessionInfo,
   saveConfig,
+  searchOauthGroups,
+  validateOauthGroups,
   type AppConfig,
+  type OauthGroup,
+  type OauthGroupValidationResult,
 } from '../api/settings.api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -68,6 +72,39 @@ function Field({ label, hint, children }: FieldProps): React.ReactElement {
   );
 }
 
+function parseGroupEntries(value: string): OauthGroup[] {
+  const seen = new Set<string>();
+  return value
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const separator = line.indexOf('|');
+      const id = (separator >= 0 ? line.slice(0, separator) : line).trim();
+      const name = (separator >= 0 ? line.slice(separator + 1) : line).trim();
+      return { id, name: name || id };
+    })
+    .filter(group => {
+      const key = group.id.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function serializeGroupEntries(groups: OauthGroup[]): string {
+  return groups.map(group => `${group.id}|${group.name || group.id}`).join('\n');
+}
+
+function redactSecrets(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    clientSecret: '',
+    oauthClientSecret: '',
+    smtpPass: '',
+  };
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function SettingsPage(): React.ReactElement {
@@ -79,6 +116,11 @@ export default function SettingsPage(): React.ReactElement {
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [saved,    setSaved]    = useState(false);
+  const [groupQuery, setGroupQuery] = useState('');
+  const [groupResults, setGroupResults] = useState<OauthGroup[]>([]);
+  const [groupSearching, setGroupSearching] = useState(false);
+  const [groupValidation, setGroupValidation] = useState<OauthGroupValidationResult | null>(null);
+  const [validatingGroups, setValidatingGroups] = useState(false);
 
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -102,7 +144,9 @@ export default function SettingsPage(): React.ReactElement {
     setSaved(false);
     try {
       await saveConfig(draft);
-      setConfig(draft);
+      const savedConfig = redactSecrets(draft);
+      setConfig(savedConfig);
+      setDraft(savedConfig);
       setEditMode(false);
       setSaved(true);
       if (savedTimer.current) clearTimeout(savedTimer.current);
@@ -137,6 +181,57 @@ export default function SettingsPage(): React.ReactElement {
   const setBool = (key: keyof AppConfig) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setDraft(d => ({ ...d, [key]: e.target.checked }));
+
+  const addOauthGroup = (key: 'oauthReaderGroups' | 'oauthAdminGroups', group: OauthGroup) => {
+    setDraft(current => {
+      const groups = parseGroupEntries(String(current[key] ?? config?.[key] ?? ''));
+      if (!groups.some(item => item.id.toLowerCase() === group.id.toLowerCase())) groups.push(group);
+      return { ...current, [key]: serializeGroupEntries(groups) };
+    });
+    setGroupValidation(null);
+  };
+
+  const handleGroupSearch = async () => {
+    setGroupSearching(true);
+    setError(null);
+    try {
+      setGroupResults(await searchOauthGroups(groupQuery));
+    } catch (e) {
+      setGroupResults([]);
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setGroupSearching(false);
+    }
+  };
+
+  const handleValidateGroups = async (saveFirst = false) => {
+    setValidatingGroups(true);
+    setError(null);
+    try {
+      if (saveFirst) await saveConfig(draft);
+      const result = await validateOauthGroups({
+        tenantId: str('tenantId'),
+        clientId: str('clientId'),
+        clientSecret: str('clientSecret'),
+        oauthTenantId: str('oauthTenantId'),
+        oauthClientId: str('oauthClientId'),
+        oauthClientSecret: str('oauthClientSecret'),
+        oauthReaderGroups: str('oauthReaderGroups'),
+        oauthAdminGroups: str('oauthAdminGroups'),
+      });
+      setGroupValidation(result);
+      if (saveFirst) {
+        const savedConfig = redactSecrets(draft);
+        setConfig(savedConfig);
+        setDraft(savedConfig);
+        setSaved(true);
+      }
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setValidatingGroups(false);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -186,6 +281,198 @@ export default function SettingsPage(): React.ReactElement {
       {/* Formulário */}
       {!loading && config && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {/* ── OAuth / OpenID Connect ──────────────────────────────────── */}
+          <Section
+            title="OAuth2 / OpenID Connect"
+            subtitle="Login Microsoft, domínios e perfis por grupos do Entra ID"
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <label style={ss.checkRow}>
+                <input
+                  type="checkbox"
+                  checked={bool('oauthEnabled')}
+                  onChange={setBool('oauthEnabled')}
+                  disabled={!editMode}
+                  style={{ marginRight: 6 }}
+                />
+                <span style={{ fontSize: 13, color: C.text }}>
+                  Habilitar autenticação Microsoft na tela inicial
+                </span>
+              </label>
+
+              <div style={ss.grid2}>
+                <Field label="Tenant OAuth" hint="Vazio = usa o Tenant ID da App Registration principal">
+                  <input aria-label="Tenant OAuth" style={ss.input} value={str('oauthTenantId')} onChange={setStr('oauthTenantId')} readOnly={!editMode} />
+                </Field>
+                <Field label="Client ID OAuth" hint="Vazio = usa o Client ID principal">
+                  <input aria-label="Client ID OAuth" style={ss.input} value={str('oauthClientId')} onChange={setStr('oauthClientId')} readOnly={!editMode} />
+                </Field>
+                <Field label="Client Secret OAuth" hint="Deixe vazio para manter o secret atual ou usar o principal">
+                  <input
+                    style={ss.input}
+                    type="password"
+                    aria-label="Client Secret OAuth"
+                    value={str('oauthClientSecret')}
+                    onChange={setStr('oauthClientSecret')}
+                    readOnly={!editMode}
+                    placeholder={editMode ? 'Novo secret (vazio = manter atual)' : '••••••••'}
+                    autoComplete="new-password"
+                  />
+                </Field>
+                <Field label="Texto do botão Microsoft">
+                  <input aria-label="Texto do botão Microsoft" style={ss.input} value={str('oauthButtonLabel')} onChange={setStr('oauthButtonLabel')} readOnly={!editMode} />
+                </Field>
+                <Field label="Redirect URI" hint="Cadastre como plataforma Web no Entra ID; não use SPA">
+                  <input
+                    style={{ ...ss.input, fontFamily: 'monospace' }}
+                    aria-label="Redirect URI"
+                    value={`${window.location.origin}/api/session/oauth/callback`}
+                    readOnly
+                  />
+                </Field>
+                <Field label="Domínios permitidos" hint="Separados por vírgula">
+                  <input aria-label="Domínios permitidos" style={ss.input} value={str('oauthAllowedDomains')} onChange={setStr('oauthAllowedDomains')} readOnly={!editMode} />
+                </Field>
+                <Field label="E-mails administradores" hint="Separados por vírgula">
+                  <input aria-label="E-mails administradores" style={ss.input} value={str('oauthAdminEmails')} onChange={setStr('oauthAdminEmails')} readOnly={!editMode} />
+                </Field>
+              </div>
+
+              <div style={ss.groupSearch}>
+                <Field label="Buscar grupo no Entra ID" hint="Pesquisa por nome para preencher os perfis abaixo">
+                  <div style={ss.inlineRow}>
+                    <input
+                      style={ss.input}
+                      aria-label="Buscar grupo no Entra ID"
+                      value={groupQuery}
+                      onChange={e => setGroupQuery(e.target.value)}
+                      readOnly={!editMode}
+                      placeholder="Ex.: SharePoint Administradores"
+                    />
+                    <button
+                      type="button"
+                      style={ss.btnSecondary}
+                      onClick={handleGroupSearch}
+                      disabled={!editMode || groupSearching}
+                    >
+                      {groupSearching ? 'Buscando…' : 'Buscar grupos'}
+                    </button>
+                  </div>
+                </Field>
+                {groupResults.length > 0 && (
+                  <div style={ss.groupResults}>
+                    {groupResults.map(group => (
+                      <div key={group.id} style={ss.groupResult}>
+                        <div>
+                          <strong>{group.name || group.id}</strong>
+                          <div style={ss.monoHint}>{group.id}</div>
+                        </div>
+                        <div style={ss.inlineRow}>
+                          <button type="button" style={ss.btnSecondary} onClick={() => addOauthGroup('oauthReaderGroups', group)}>
+                            + Leitura
+                          </button>
+                          <button type="button" style={ss.btnPrimary} onClick={() => addOauthGroup('oauthAdminGroups', group)}>
+                            + Admin
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={ss.grid2}>
+                <Field label="Grupos com acesso de leitura" hint="Um Group ID por linha; nome opcional no formato ID|Nome">
+                  <textarea
+                    style={{ ...ss.input, minHeight: 110, fontFamily: 'monospace' }}
+                    aria-label="Grupos com acesso de leitura"
+                    value={str('oauthReaderGroups')}
+                    onChange={setStr('oauthReaderGroups')}
+                    readOnly={!editMode}
+                  />
+                </Field>
+                <Field label="Grupos com acesso de administrador" hint="Um Group ID por linha; nome opcional no formato ID|Nome">
+                  <textarea
+                    style={{ ...ss.input, minHeight: 110, fontFamily: 'monospace' }}
+                    aria-label="Grupos com acesso de administrador"
+                    value={str('oauthAdminGroups')}
+                    onChange={setStr('oauthAdminGroups')}
+                    readOnly={!editMode}
+                  />
+                </Field>
+              </div>
+
+              {editMode && (
+                <div style={ss.inlineRow}>
+                  <button type="button" style={ss.btnSecondary} onClick={() => handleValidateGroups(false)} disabled={validatingGroups}>
+                    {validatingGroups ? 'Validando…' : 'Validar grupos'}
+                  </button>
+                  <button type="button" style={ss.btnPrimary} onClick={() => handleValidateGroups(true)} disabled={validatingGroups}>
+                    Salvar e validar grupos
+                  </button>
+                </div>
+              )}
+
+              <div style={groupValidation?.ok ? ss.validationOk : ss.validationBox}>
+                <strong>
+                  {groupValidation
+                    ? `${groupValidation.summary.valid} válido(s), ${groupValidation.summary.invalid} inválido(s)`
+                    : 'Nenhuma validação de grupos executada.'}
+                </strong>
+                {groupValidation && [...groupValidation.reader, ...groupValidation.admin].map(item => (
+                  <div key={`${item.role}-${item.id}`} style={ss.validationRow}>
+                    <span>{item.role === 'admin' ? 'Administrador' : 'Leitura'}: {item.name || item.id}</span>
+                    <span style={{ color: item.exists ? C.good : C.bad }}>
+                      {item.exists ? 'Válido' : item.error || 'Não localizado'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Section>
+
+          {/* ── SMTP ────────────────────────────────────────────────────── */}
+          <Section title="SMTP" subtitle="Envio de primeiro acesso, redefinição e notificações" defaultOpen={false}>
+            <div style={ss.grid2}>
+              <Field label="SMTP Host">
+                <input aria-label="SMTP Host" style={ss.input} value={str('smtpHost')} onChange={setStr('smtpHost')} readOnly={!editMode} placeholder="smtp.seudominio.com" />
+              </Field>
+              <Field label="SMTP Porta">
+                <input aria-label="SMTP Porta" style={ss.input} type="number" min={1} max={65535} value={num('smtpPort') || 587} onChange={setNum('smtpPort')} readOnly={!editMode} />
+              </Field>
+              <Field label="SMTP Usuário" hint="Opcional quando o servidor não exige autenticação">
+                <input aria-label="SMTP Usuário" style={ss.input} value={str('smtpUser')} onChange={setStr('smtpUser')} readOnly={!editMode} autoComplete="username" />
+              </Field>
+              <Field label="SMTP Senha" hint="Deixe vazio para manter a senha atual">
+                <input
+                  style={ss.input}
+                  type="password"
+                  aria-label="SMTP Senha"
+                  value={str('smtpPass')}
+                  onChange={setStr('smtpPass')}
+                  readOnly={!editMode}
+                  placeholder={editMode ? 'Nova senha (vazio = manter atual)' : '••••••••'}
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Field label="SMTP Remetente (From)">
+                <input aria-label="SMTP Remetente (From)" style={ss.input} type="email" value={str('smtpFrom')} onChange={setStr('smtpFrom')} readOnly={!editMode} placeholder="no-reply@dominio.com" />
+              </Field>
+              <Field label="Segurança da conexão" hint="Marque para SMTPS/TLS direto, normalmente porta 465. Desmarcado permite STARTTLS, normalmente porta 587.">
+                <label style={ss.checkRow}>
+                  <input
+                    type="checkbox"
+                    checked={bool('smtpSecure')}
+                    onChange={setBool('smtpSecure')}
+                    disabled={!editMode}
+                    style={{ marginRight: 6 }}
+                  />
+                  <span style={{ fontSize: 13, color: C.text }}>Usar TLS direto (SMTPS)</span>
+                </label>
+              </Field>
+            </div>
+          </Section>
 
           {/* ── Credenciais Microsoft Graph ──────────────────────────────── */}
           <Section title="Credenciais Microsoft Graph" subtitle="Tenant ID, Client ID e credenciais de serviço">
@@ -509,6 +796,75 @@ const ss: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     fontFamily: 'inherit',
+  },
+  btnSecondary: {
+    padding: '6px 12px',
+    background: '#fff',
+    color: C.accent,
+    border: `1px solid ${C.accent}`,
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+
+  inlineRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  groupSearch: {
+    padding: 12,
+    background: '#f7f9fc',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+  },
+  groupResults: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    marginTop: 10,
+  },
+  groupResult: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    padding: '8px 10px',
+    background: '#fff',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+  },
+  monoHint: {
+    marginTop: 2,
+    color: C.muted,
+    fontFamily: 'monospace',
+    fontSize: 11,
+  },
+  validationBox: {
+    padding: '10px 12px',
+    background: '#f7f9fc',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+    color: C.muted,
+    fontSize: 12,
+  },
+  validationOk: {
+    padding: '10px 12px',
+    background: '#f0fff4',
+    border: '1px solid #9ae6b4',
+    borderRadius: 4,
+    color: C.good,
+    fontSize: 12,
+  },
+  validationRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingTop: 6,
   },
 
   actionBar: {
