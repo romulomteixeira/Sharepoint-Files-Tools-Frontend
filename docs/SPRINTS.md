@@ -826,7 +826,16 @@ equivalente no React:
 - Diagnóstico de processos e heartbeats via `GET /api/health/workers`
 - Testes de API, interface e homologação visual com três workers
 
+### ✅ Bloco 3 — listagem explícita, seleção e paginação de sites
+
+- Busca explícita por palavra-chave, nome ou URL, sem carregamento automático
+- Quantidade de sites configurável entre 1 e 999
+- Paginação local com 10, 20 ou 50 itens por página
+- Seleção preservada ao navegar entre páginas
+- Ações para selecionar todos os resultados carregados ou limpar a seleção
+- Scan parcial baseado nos sites selecionados
+- Testes de interface e homologação visual com seleção entre páginas
+
 ### 📋 Próximos blocos
 
-- Bloco 3 — listagem explícita, seleção e paginação de sites
 - Bloco 4 — escopo, modo, limites e cancelamento de scans
