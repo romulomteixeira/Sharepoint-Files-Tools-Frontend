@@ -4,8 +4,8 @@
 
 | Ferramenta | Versão mínima | Uso |
 |---|---|---|
-| Node.js | 22 | Desenvolvimento e build |
-| npm | 8 | Gerenciador de pacotes |
+| Node.js | 22.13 | Desenvolvimento e build |
+| npm | 10 | Gerenciador de pacotes |
 | Docker | 24 | Executar o stack completo |
 | Docker Compose | v2 | Orquestrar backend + frontend |
 
@@ -19,7 +19,7 @@ git clone git@github.com:romulomteixeira/Sharepoint-Files-Tools-Frontend.git
 cd Sharepoint-Files-Tools-Frontend
 
 # 2. Instalar dependências
-npm install --legacy-peer-deps
+npm ci
 
 # 3. Iniciar o servidor de desenvolvimento
 npm run dev
@@ -27,7 +27,7 @@ npm run dev
 
 A aplicação ficará disponível em **http://localhost:3000**.
 
-> **Nota:** o flag `--legacy-peer-deps` é necessário porque o `@vitejs/plugin-react-oxc` ainda não declarou suporte formal ao Vite 8 nos peer deps, mas funciona corretamente.
+O `package-lock.json` é versionado e o projeto usa o plugin React oficial compatível com Vite 8. Não use `--legacy-peer-deps`: conflitos de peer dependency devem ser corrigidos no manifesto.
 
 ---
 
@@ -178,7 +178,7 @@ npm run build
 
 | Problema | Causa | Solução |
 |---|---|---|
-| Pacote de teste não encontrado | Dependências de desenvolvimento não instaladas | Execute `npm install --legacy-peer-deps` antes dos checks |
+| Pacote de teste não encontrado | Dependências de desenvolvimento não instaladas | Execute `npm ci` antes dos checks |
 | `import.meta.env` não reconhecido | `vite-env.d.ts` ausente | Verificar se o arquivo existe em `src/` |
 | `manualChunks is not a function` | Vite 8 exige função, não objeto | Usar `manualChunks(id) { ... }` |
 | API retorna 401 | Sessão expirada ou não autenticado | Acessar o backend em `:8787/login` |

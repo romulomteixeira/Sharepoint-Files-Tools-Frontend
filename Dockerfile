@@ -6,8 +6,8 @@ WORKDIR /app
 # Copiar manifests antes do código para aproveitar cache de layer
 COPY package*.json ./
 
-# Instalar dependências de dev (necessárias para o build Vite)
-RUN npm install --ignore-scripts --legacy-peer-deps
+# Instalar exatamente as dependências validadas no lockfile
+RUN npm ci --ignore-scripts
 
 # Copiar código-fonte e construir
 COPY . .

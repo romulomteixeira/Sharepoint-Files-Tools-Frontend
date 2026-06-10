@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { server } from '../../test/server';
 import { AuthProvider, useAuth } from '../AuthContext';
@@ -53,7 +53,9 @@ describe('AuthContext', () => {
     );
 
     expect(await screen.findByText('Operador QA')).toBeInTheDocument();
-    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    act(() => {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    });
 
     await waitFor(() => expect(screen.getByText('anônimo')).toBeInTheDocument());
     expect(screen.getByText('sem sessão')).toBeInTheDocument();

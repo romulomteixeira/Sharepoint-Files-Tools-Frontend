@@ -2,7 +2,7 @@
 
 > **Repositório:** `romulomteixeira/Sharepoint-Files-Tools-Frontend`
 > **Branch de integração:** `develop` (features em branches `feat/sprint-*`)
-> **Stack:** React 18 + TypeScript + Vite 8 + React Router v6
+> **Stack:** React 19 + TypeScript 6 + Vite 8 + React Router v7
 
 ---
 
