@@ -27,8 +27,12 @@ RUN npm run build
 FROM alpine:3.23 AS runtime
 
 # nginx não tem versão pinada intencionalmente: `apk upgrade` garante patches futuros.
+# O workflow altera este argumento a cada execução para não reutilizar uma camada
+# de atualização de segurança criada com índices antigos do repositório Alpine.
+ARG ALPINE_SECURITY_REFRESH=local
 # hadolint ignore=DL3018
-RUN apk upgrade --no-cache \
+RUN echo "Security refresh: ${ALPINE_SECURITY_REFRESH}" \
+    && apk upgrade --no-cache \
     && apk add --no-cache nginx \
     && rm -f /etc/nginx/http.d/default.conf
 
