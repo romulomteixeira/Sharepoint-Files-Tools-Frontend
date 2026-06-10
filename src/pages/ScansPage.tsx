@@ -2,7 +2,7 @@
  * ScansPage.tsx - Criação de scans completos ou por seleção de sites.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createScan, listScans, searchSites } from '../api/scans.api';
 import type { SiteSearchResult } from '../api/scans.api';
@@ -45,35 +45,17 @@ function scanType(scan: Scan): string {
 
 export default function ScansPage(): React.ReactElement {
   const { data: scans, loading, error, refetch } = useApi(listScans, []);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState('*');
+  const [siteLimit, setSiteLimit] = useState(50);
   const [results, setResults] = useState<SiteSearchResult[]>([]);
   const [selected, setSelected] = useState<SiteSearchResult[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [enableVersioning, setEnableVersioning] = useState(false);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
-  const requestRef = useRef(0);
-
-  useEffect(() => {
-    const currentRequest = ++requestRef.current;
-    const timer = window.setTimeout(async () => {
-      setSearching(true);
-      setSearchError(null);
-      try {
-        const sites = await searchSites(query, 50);
-        if (requestRef.current === currentRequest) setResults(sites);
-      } catch (err) {
-        if (requestRef.current === currentRequest) {
-          setResults([]);
-          setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
-        }
-      } finally {
-        if (requestRef.current === currentRequest) setSearching(false);
-      }
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [query]);
 
   useEffect(() => {
     if (!toast) return;
@@ -83,6 +65,27 @@ export default function ScansPage(): React.ReactElement {
 
   const selectedIds = useMemo(() => new Set(selected.map((site) => site.id)), [selected]);
   const allResultsSelected = results.length > 0 && results.every((site) => selectedIds.has(site.id));
+  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+  const visibleResults = useMemo(
+    () => results.slice((page - 1) * pageSize, page * pageSize),
+    [page, pageSize, results],
+  );
+
+  async function handleLoadSites(): Promise<void> {
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const sites = await searchSites(query, siteLimit);
+      setResults(sites);
+      setPage(1);
+    } catch (err) {
+      setResults([]);
+      setPage(1);
+      setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
+    } finally {
+      setSearching(false);
+    }
+  }
 
   function toggleSite(site: SiteSearchResult): void {
     setSelected((current) => current.some((item) => item.id === site.id)
@@ -138,15 +141,38 @@ export default function ScansPage(): React.ReactElement {
 
       <section style={styles.panel}>
         <h2 style={styles.panelTitle}>Iniciar novo scan</h2>
-        <label htmlFor="site-search" style={styles.label}>Buscar site por nome ou URL</label>
-        <input
-          id="site-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Digite para buscar; vazio lista os primeiros sites"
-          style={styles.input}
-        />
-        <div style={styles.helper}>{searching ? 'Buscando sites...' : `${results.length} site(s) encontrado(s)`}</div>
+        <div style={styles.searchGrid}>
+          <div>
+            <label htmlFor="site-search" style={styles.label}>Palavra-chave, nome ou URL</label>
+            <input
+              id="site-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="* ou marketing ou https://tenant/sites/marketing"
+              style={styles.input}
+            />
+          </div>
+          <div>
+            <label htmlFor="site-limit" style={styles.label}>Quantidade a listar</label>
+            <input
+              id="site-limit"
+              type="number"
+              min={1}
+              max={999}
+              value={siteLimit}
+              onChange={(event) => setSiteLimit(Math.max(1, Math.min(999, Number(event.target.value) || 1)))}
+              style={styles.input}
+            />
+          </div>
+          <button type="button" onClick={handleLoadSites} disabled={searching} style={styles.loadButton}>
+            {searching ? 'Carregando...' : 'Carregar sites'}
+          </button>
+        </div>
+        <div style={styles.helper}>
+          {results.length > 0
+            ? `${results.length} site(s) carregado(s); ${selected.length} selecionado(s)`
+            : 'Informe a busca e a quantidade desejada. A listagem não é carregada automaticamente.'}
+        </div>
         {searchError && <div role="alert" style={styles.error}>{searchError}</div>}
 
         {results.length > 0 && (
@@ -160,7 +186,7 @@ export default function ScansPage(): React.ReactElement {
               </button>
             </div>
             <div style={styles.siteList}>
-              {results.map((site) => (
+              {visibleResults.map((site) => (
                 <label key={site.id} style={styles.siteRow}>
                   <input
                     type="checkbox"
@@ -173,6 +199,31 @@ export default function ScansPage(): React.ReactElement {
                   </span>
                 </label>
               ))}
+            </div>
+            <div style={styles.pager}>
+              <span style={styles.helper}>Página {page} de {totalPages}</span>
+              <div style={styles.pagerActions}>
+                <label htmlFor="site-page-size" style={styles.pagerLabel}>Itens/página</label>
+                <select
+                  id="site-page-size"
+                  value={pageSize}
+                  onChange={event => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  style={styles.pageSelect}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+                <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1} style={styles.secondaryButton}>
+                  Anterior
+                </button>
+                <button type="button" onClick={() => setPage(current => Math.min(totalPages, current + 1))} disabled={page >= totalPages} style={styles.secondaryButton}>
+                  Próxima
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -265,12 +316,18 @@ const styles: Record<string, React.CSSProperties> = {
   panelTitle: { fontSize: '1.1rem', margin: '0 0 1rem' },
   label: { display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: 6 },
   input: { width: '100%', boxSizing: 'border-box', padding: '0.7rem 0.8rem', border: '1px solid #d1d5db', borderRadius: 6 },
+  searchGrid: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 180px auto', gap: 12, alignItems: 'end' },
+  loadButton: { padding: '0.72rem 1rem', background: '#fff', color: '#2563eb', border: '1px solid #2563eb', borderRadius: 6, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
   helper: { minHeight: 20, color: '#6b7280', fontSize: '0.8rem', marginTop: 5 },
   selectionActions: { display: 'flex', gap: 8, margin: '0.75rem 0' },
   secondaryButton: { padding: '0.45rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' },
   siteList: { maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 },
   siteRow: { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '0.7rem', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' },
   siteUrl: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
+  pager: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' },
+  pagerActions: { display: 'flex', alignItems: 'center', gap: 8 },
+  pagerLabel: { color: '#6b7280', fontSize: '0.8rem' },
+  pageSelect: { padding: '0.4rem 0.55rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
   chips: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: '0.8rem' },
   chip: { border: 0, borderRadius: 999, padding: '0.35rem 0.65rem', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' },
   moreChip: { borderRadius: 999, padding: '0.35rem 0.65rem', background: '#f3f4f6', color: '#374151' },
