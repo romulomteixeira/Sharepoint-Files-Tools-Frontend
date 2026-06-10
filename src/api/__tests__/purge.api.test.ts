@@ -41,12 +41,26 @@ describe("purge.api", () => {
           scanId: "scan-1",
           olderThanDays: 90,
         });
-        return envelope({ count: 850, bytes: 4096, items: [] });
+        return envelope({
+          scanId: "scan-1",
+          result: {
+            filesAffected: 850,
+            purgeVersions: 1200,
+            purgeBytes: 4096,
+            purgeHuman: "4 KB",
+            sitesAffected: 3,
+            unknownSizeCount: 0,
+          },
+          preview: [{ itemId: "item-1", name: "arquivo.docx", purgeBytes: 4096 }],
+        });
       }),
     );
 
     await expect(
       simulateVersionRetention({ scanId: "scan-1", olderThanDays: 90 }),
-    ).resolves.toMatchObject({ count: 850, bytes: 4096 });
+    ).resolves.toMatchObject({
+      result: { filesAffected: 850, purgeBytes: 4096 },
+      preview: [{ itemId: "item-1" }],
+    });
   });
 });

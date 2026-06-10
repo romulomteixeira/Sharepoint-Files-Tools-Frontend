@@ -868,3 +868,18 @@ equivalente no React:
   iniciar scans parciais continua disponível no menu Sites.
 - O helper duplicado de confirmação com body aninhado foi removido; o fluxo único usa body flat
   `{ operation, scanId, ...params }`, conforme o backend local.
+
+---
+
+## Correções de paridade pós-Sprint 24
+
+### Bloco 1 — Relatórios e simulação de expurgo
+
+- [x] Diferenciar arquivo síncrono de job assíncrono nos exports CSV/JSONL
+- [x] Tratar JSONL como blob, sem executar `JSON.parse`
+- [x] Enviar filtro de extensão como `ext`
+- [x] Normalizar status de exportação vindo de `progress.status`
+- [x] Consumir `result` e `preview` da simulação server-side de versões
+- [x] Remover a consulta paralela limitada a 500 arquivos
+- [x] Homologação automatizada e visual
+- [ ] PR aprovado e mesclado

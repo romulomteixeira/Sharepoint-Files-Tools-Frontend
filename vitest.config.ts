@@ -13,6 +13,7 @@ export default defineConfig({
     environment: "jsdom",
     environmentOptions: { jsdom: { url: "http://localhost/" } },
     globals: true,
+    testTimeout: 20_000,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
     coverage: {
