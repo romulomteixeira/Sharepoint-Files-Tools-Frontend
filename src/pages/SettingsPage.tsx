@@ -14,10 +14,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   getConfig,
+  getSchedule,
   getWorkersHealth,
   getSessionInfo,
   diagnoseAuth,
   saveConfig,
+  saveSchedule,
   searchOauthGroups,
   validateOauthGroups,
   type AppConfig,
@@ -25,6 +27,8 @@ import {
   type GraphExtraApp,
   type OauthGroup,
   type OauthGroupValidationResult,
+  type SchedulerConfig,
+  type SchedulerState,
   type WorkersHealth,
 } from '../api/settings.api';
 
@@ -135,6 +139,55 @@ function versionModeLabel(mode: string): string {
   return 'Somente Top arquivos (recomendado)';
 }
 
+const DEFAULT_SCHEDULE: SchedulerConfig = {
+  normal: {
+    enabled: false,
+    freq: 'daily',
+    time: '02:00',
+    weekdays: [1, 2, 3, 4, 5],
+    allSites: true,
+    siteSearch: '*',
+    maxSites: 5000,
+  },
+  versions: {
+    enabled: false,
+    freq: 'daily',
+    time: '03:00',
+    weekdays: [1, 2, 3, 4, 5],
+    target: 'latest',
+    mode: 'top',
+    topN: 25000,
+    maxItems: 999999999,
+    force: false,
+  },
+};
+
+const WEEKDAYS = [
+  { value: 1, label: 'Seg' },
+  { value: 2, label: 'Ter' },
+  { value: 3, label: 'Qua' },
+  { value: 4, label: 'Qui' },
+  { value: 5, label: 'Sex' },
+  { value: 6, label: 'Sáb' },
+  { value: 0, label: 'Dom' },
+];
+
+function normalizeSchedule(schedule?: Partial<SchedulerConfig>): SchedulerConfig {
+  return {
+    normal: { ...DEFAULT_SCHEDULE.normal, ...(schedule?.normal ?? {}) },
+    versions: { ...DEFAULT_SCHEDULE.versions, ...(schedule?.versions ?? {}) },
+  };
+}
+
+function validateSchedule(schedule: SchedulerConfig): void {
+  if (schedule.normal.enabled && schedule.normal.freq === 'weekly' && schedule.normal.weekdays.length === 0) {
+    throw new Error('Selecione ao menos um dia para o scan normal semanal.');
+  }
+  if (schedule.versions.enabled && schedule.versions.freq === 'weekly' && schedule.versions.weekdays.length === 0) {
+    throw new Error('Selecione ao menos um dia para o scan de versões semanal.');
+  }
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function SettingsPage(): React.ReactElement {
@@ -155,17 +208,26 @@ export default function SettingsPage(): React.ReactElement {
   const [workersHealth, setWorkersHealth] = useState<WorkersHealth | null>(null);
   const [diagnosingAuth, setDiagnosingAuth] = useState(false);
   const [checkingWorkers, setCheckingWorkers] = useState(false);
+  const [schedule, setSchedule] = useState<SchedulerConfig>(DEFAULT_SCHEDULE);
+  const [scheduleDraft, setScheduleDraft] = useState<SchedulerConfig>(DEFAULT_SCHEDULE);
+  const [scheduleState, setScheduleState] = useState<SchedulerState>({});
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleSaved, setScheduleSaved] = useState(false);
 
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Mount: sessão + config ────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true);
-    Promise.all([getSessionInfo(), getConfig()])
-      .then(([session, cfg]) => {
+    Promise.all([getSessionInfo(), getConfig(), getSchedule()])
+      .then(([session, cfg, scheduler]) => {
+        const normalizedSchedule = normalizeSchedule(scheduler.schedule);
         setIsAdmin(session.role === 'admin');
         setConfig(cfg);
         setDraft(cfg);
+        setSchedule(normalizedSchedule);
+        setScheduleDraft(normalizedSchedule);
+        setScheduleState(scheduler.state ?? {});
       })
       .catch(e => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false));
@@ -195,6 +257,7 @@ export default function SettingsPage(): React.ReactElement {
 
   const handleCancel = () => {
     setDraft(config ?? {});
+    setScheduleDraft(schedule);
     setEditMode(false);
     setError(null);
   };
@@ -259,6 +322,45 @@ export default function SettingsPage(): React.ReactElement {
       setError(String((e as Error)?.message ?? e));
     } finally {
       setCheckingWorkers(false);
+    }
+  };
+
+  const updateSchedule = <K extends keyof SchedulerConfig>(
+    key: K,
+    patch: Partial<SchedulerConfig[K]>,
+  ) => {
+    setScheduleDraft(current => ({
+      ...current,
+      [key]: { ...current[key], ...patch },
+    }));
+  };
+
+  const toggleScheduleWeekday = (key: keyof SchedulerConfig, weekday: number) => {
+    const currentDays = scheduleDraft[key].weekdays;
+    updateSchedule(key, {
+      weekdays: currentDays.includes(weekday)
+        ? currentDays.filter(day => day !== weekday)
+        : [...currentDays, weekday],
+    });
+  };
+
+  const handleSaveSchedule = async () => {
+    setSavingSchedule(true);
+    setScheduleSaved(false);
+    setError(null);
+    try {
+      validateSchedule(scheduleDraft);
+      await saveSchedule(scheduleDraft);
+      const refreshed = await getSchedule();
+      const normalizedSchedule = normalizeSchedule(refreshed.schedule);
+      setSchedule(normalizedSchedule);
+      setScheduleDraft(normalizedSchedule);
+      setScheduleState(refreshed.state ?? {});
+      setScheduleSaved(true);
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setSavingSchedule(false);
     }
   };
 
@@ -345,6 +447,7 @@ export default function SettingsPage(): React.ReactElement {
       {/* Feedback */}
       {error && <div style={ss.errorBox}>{error}</div>}
       {saved && <div style={ss.successBox}>✓ Configurações salvas com sucesso.</div>}
+      {scheduleSaved && <div style={ss.successBox}>✓ Agendamentos salvos com sucesso.</div>}
       {!isAdmin && !loading && (
         <div style={ss.infoBox}>
           Você está visualizando as configurações em modo leitura. Apenas administradores podem alterar.
@@ -616,6 +719,221 @@ export default function SettingsPage(): React.ReactElement {
                   readOnly={!editMode}
                 />
               </Field>
+            </div>
+          </Section>
+
+          {/* ── Scheduler ───────────────────────────────────────────────── */}
+          <Section title="Agendamento (Scheduler)" subtitle="Execução server-side mesmo com o navegador fechado" defaultOpen={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.infoInline}>
+                Última execução: scan normal <strong>{scheduleState.lastRun?.normal || '—'}</strong>
+                {' · '}
+                versões <strong>{scheduleState.lastRun?.versions || '—'}</strong>.
+                Se já houver um scan em andamento, o scheduler aguarda.
+              </div>
+
+              <div style={ss.grid2}>
+                <div style={ss.scheduleCard}>
+                  <strong>Scan normal</strong>
+                  <label style={ss.checkRow}>
+                    <input
+                      aria-label="Habilitar scan normal agendado"
+                      type="checkbox"
+                      checked={scheduleDraft.normal.enabled}
+                      onChange={event => updateSchedule('normal', { enabled: event.target.checked })}
+                      disabled={!editMode}
+                    />
+                    <span style={ss.checkText}>Habilitar</span>
+                  </label>
+                  <div style={ss.grid2}>
+                    <Field label="Frequência">
+                      <select
+                        aria-label="Frequência do scan normal"
+                        style={ss.select}
+                        value={scheduleDraft.normal.freq}
+                        onChange={event => updateSchedule('normal', { freq: event.target.value as 'daily' | 'weekly' })}
+                        disabled={!editMode}
+                      >
+                        <option value="daily">Diário</option>
+                        <option value="weekly">Semanal</option>
+                      </select>
+                    </Field>
+                    <Field label="Hora">
+                      <input
+                        aria-label="Hora do scan normal"
+                        style={ss.input}
+                        type="time"
+                        value={scheduleDraft.normal.time}
+                        onChange={event => updateSchedule('normal', { time: event.target.value })}
+                        readOnly={!editMode}
+                      />
+                    </Field>
+                  </div>
+                  {scheduleDraft.normal.freq === 'weekly' && (
+                    <div style={ss.weekdays}>
+                      {WEEKDAYS.map(day => (
+                        <label key={day.value} style={ss.checkRow}>
+                          <input
+                            aria-label={`${day.label} no scan normal`}
+                            type="checkbox"
+                            checked={scheduleDraft.normal.weekdays.includes(day.value)}
+                            onChange={() => toggleScheduleWeekday('normal', day.value)}
+                            disabled={!editMode}
+                          />
+                          <span style={ss.checkText}>{day.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <label style={ss.checkRow}>
+                    <input
+                      aria-label="Todos os sites no scan agendado"
+                      type="checkbox"
+                      checked={scheduleDraft.normal.allSites}
+                      onChange={event => updateSchedule('normal', { allSites: event.target.checked })}
+                      disabled={!editMode}
+                    />
+                    <span style={ss.checkText}>Todos os sites</span>
+                  </label>
+                  <div style={ss.grid2}>
+                    <Field label="Busca">
+                      <input
+                        aria-label="Busca do scan agendado"
+                        style={ss.input}
+                        value={scheduleDraft.normal.siteSearch}
+                        onChange={event => updateSchedule('normal', { siteSearch: event.target.value })}
+                        readOnly={!editMode}
+                      />
+                    </Field>
+                    <Field label="Máx. sites">
+                      <input
+                        aria-label="Máximo de sites do scan agendado"
+                        style={ss.input}
+                        type="number"
+                        min={1}
+                        max={50000}
+                        value={scheduleDraft.normal.maxSites}
+                        onChange={event => updateSchedule('normal', { maxSites: Number(event.target.value) })}
+                        readOnly={!editMode}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={ss.scheduleCard}>
+                  <strong>Scan de versões</strong>
+                  <label style={ss.checkRow}>
+                    <input
+                      aria-label="Habilitar scan de versões agendado"
+                      type="checkbox"
+                      checked={scheduleDraft.versions.enabled}
+                      onChange={event => updateSchedule('versions', { enabled: event.target.checked })}
+                      disabled={!editMode}
+                    />
+                    <span style={ss.checkText}>Habilitar</span>
+                  </label>
+                  <div style={ss.grid2}>
+                    <Field label="Frequência">
+                      <select
+                        aria-label="Frequência do scan de versões"
+                        style={ss.select}
+                        value={scheduleDraft.versions.freq}
+                        onChange={event => updateSchedule('versions', { freq: event.target.value as 'daily' | 'weekly' })}
+                        disabled={!editMode}
+                      >
+                        <option value="daily">Diário</option>
+                        <option value="weekly">Semanal</option>
+                      </select>
+                    </Field>
+                    <Field label="Hora">
+                      <input
+                        aria-label="Hora do scan de versões"
+                        style={ss.input}
+                        type="time"
+                        value={scheduleDraft.versions.time}
+                        onChange={event => updateSchedule('versions', { time: event.target.value })}
+                        readOnly={!editMode}
+                      />
+                    </Field>
+                  </div>
+                  {scheduleDraft.versions.freq === 'weekly' && (
+                    <div style={ss.weekdays}>
+                      {WEEKDAYS.map(day => (
+                        <label key={day.value} style={ss.checkRow}>
+                          <input
+                            aria-label={`${day.label} no scan de versões`}
+                            type="checkbox"
+                            checked={scheduleDraft.versions.weekdays.includes(day.value)}
+                            onChange={() => toggleScheduleWeekday('versions', day.value)}
+                            disabled={!editMode}
+                          />
+                          <span style={ss.checkText}>{day.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div style={ss.grid2}>
+                    <Field label="Modo">
+                      <select
+                        aria-label="Modo do scan de versões agendado"
+                        style={ss.select}
+                        value={scheduleDraft.versions.mode}
+                        onChange={event => updateSchedule('versions', { mode: event.target.value as 'top' | 'all' })}
+                        disabled={!editMode}
+                      >
+                        <option value="top">Top arquivos</option>
+                        <option value="all">Todos até o limite</option>
+                      </select>
+                    </Field>
+                    {scheduleDraft.versions.mode === 'top' ? (
+                      <Field label="Top N">
+                        <input
+                          aria-label="Top N do scan de versões agendado"
+                          style={ss.input}
+                          type="number"
+                          min={10}
+                          max={25000}
+                          value={scheduleDraft.versions.topN}
+                          onChange={event => updateSchedule('versions', { topN: Number(event.target.value) })}
+                          readOnly={!editMode}
+                        />
+                      </Field>
+                    ) : (
+                      <Field label="Limite">
+                        <input
+                          aria-label="Limite do scan de versões agendado"
+                          style={ss.input}
+                          type="number"
+                          min={1}
+                          max={999999999}
+                          value={scheduleDraft.versions.maxItems}
+                          onChange={event => updateSchedule('versions', { maxItems: Number(event.target.value) })}
+                          readOnly={!editMode}
+                        />
+                      </Field>
+                    )}
+                  </div>
+                  <label style={ss.checkRow}>
+                    <input
+                      aria-label="Recalcular versões no agendamento"
+                      type="checkbox"
+                      checked={scheduleDraft.versions.force}
+                      onChange={event => updateSchedule('versions', { force: event.target.checked })}
+                      disabled={!editMode}
+                    />
+                    <span style={ss.checkText}>Recalcular (force)</span>
+                  </label>
+                  <div style={ss.hint}>Executa sempre sobre o último scan finalizado.</div>
+                </div>
+              </div>
+
+              {editMode && (
+                <div style={ss.inlineRow}>
+                  <button type="button" style={ss.btnPrimary} onClick={handleSaveSchedule} disabled={savingSchedule}>
+                    {savingSchedule ? 'Salvando…' : 'Salvar agendamentos'}
+                  </button>
+                </div>
+              )}
             </div>
           </Section>
 
@@ -977,6 +1295,17 @@ const ss: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     cursor: 'pointer',
+  },
+  checkText: { marginLeft: 6, fontSize: 13, color: C.text },
+  weekdays: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  scheduleCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    padding: 12,
+    background: '#f7f9fc',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
   },
 
   // Buttons

@@ -180,6 +180,47 @@ export interface WorkersHealth {
   };
 }
 
+export type ScheduleFrequency = 'daily' | 'weekly';
+
+export interface NormalScanSchedule {
+  enabled: boolean;
+  freq: ScheduleFrequency;
+  time: string;
+  weekdays: number[];
+  allSites: boolean;
+  siteSearch: string;
+  maxSites: number;
+}
+
+export interface VersionsScanSchedule {
+  enabled: boolean;
+  freq: ScheduleFrequency;
+  time: string;
+  weekdays: number[];
+  target: 'latest';
+  mode: 'top' | 'all';
+  topN: number;
+  maxItems: number;
+  force: boolean;
+}
+
+export interface SchedulerConfig {
+  normal: NormalScanSchedule;
+  versions: VersionsScanSchedule;
+}
+
+export interface SchedulerState {
+  lastRun?: {
+    normal?: string;
+    versions?: string;
+  };
+}
+
+export interface SchedulerResponse {
+  schedule: SchedulerConfig;
+  state: SchedulerState;
+}
+
 // ─── Fetch interno ────────────────────────────────────────────────────────────
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
@@ -255,6 +296,16 @@ export async function diagnoseAuth(): Promise<AuthDiagnosis> {
 /** Consulta heartbeats e processos esperados dos workers persistentes. */
 export async function getWorkersHealth(): Promise<WorkersHealth> {
   return sfetch<WorkersHealth>('GET', '/api/health/workers');
+}
+
+/** Carrega os agendamentos server-side e o estado das últimas execuções. */
+export async function getSchedule(): Promise<SchedulerResponse> {
+  return sfetch<SchedulerResponse>('GET', '/api/schedule');
+}
+
+/** Salva os agendamentos server-side (requer sessão de administrador). */
+export async function saveSchedule(schedule: SchedulerConfig): Promise<OkResponse> {
+  return sfetch<OkResponse>('POST', '/api/schedule', { schedule });
 }
 
 /** Lista todos os usuários cadastrados (requer sessão de administrador). */
