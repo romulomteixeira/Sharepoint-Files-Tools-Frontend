@@ -845,3 +845,12 @@ equivalente no React:
 - Identificação do modo utilizado na lista de scans
 - Cancelamento de scans ativos pelo `scanId` retornado na listagem
 - Testes de contrato e interface para criação e cancelamento
+
+### ✅ Bloco 5 — scheduler server-side
+
+- Agendamento independente de scan normal e carga de versões
+- Frequência diária ou semanal, horário e dias da semana
+- Escopo, busca e limite de sites para o scan normal
+- Modo Top/Todos, limites e force para versões no último scan finalizado
+- Exibição do estado das últimas execuções
+- Testes de contrato, interface e homologação visual com persistência

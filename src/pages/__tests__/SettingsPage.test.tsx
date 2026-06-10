@@ -32,10 +32,37 @@ const baseConfig = {
   graphExtraApps: [],
 };
 
+const baseSchedule = {
+  normal: {
+    enabled: false,
+    freq: 'daily',
+    time: '02:00',
+    weekdays: [1, 2, 3, 4, 5],
+    allSites: true,
+    siteSearch: '*',
+    maxSites: 5000,
+  },
+  versions: {
+    enabled: false,
+    freq: 'daily',
+    time: '03:00',
+    weekdays: [1, 2, 3, 4, 5],
+    target: 'latest',
+    mode: 'top',
+    topN: 25000,
+    maxItems: 999999999,
+    force: false,
+  },
+};
+
 function useSettingsHandlers(onSave?: (payload: Record<string, unknown>) => void): void {
   server.use(
     http.get('/api/session/check', () => HttpResponse.json({ ok: true, role: 'admin' })),
     http.get('/api/config', () => HttpResponse.json(baseConfig)),
+    http.get('/api/schedule', () => HttpResponse.json({
+      schedule: baseSchedule,
+      state: { lastRun: { normal: '2026-06-09T02:00:00Z', versions: '2026-06-09T03:00:00Z' } },
+    })),
     http.post('/api/config', async ({ request }) => {
       onSave?.(await request.json() as Record<string, unknown>);
       return HttpResponse.json({ ok: true });
@@ -137,6 +164,10 @@ describe('SettingsPage', () => {
           hasClientSecret: true,
         }],
       })),
+      http.get('/api/schedule', () => HttpResponse.json({
+        schedule: baseSchedule,
+        state: { lastRun: {} },
+      })),
       http.post('/api/config', async ({ request }) => {
         savedPayload = await request.json() as Record<string, unknown>;
         return HttpResponse.json({ ok: true });
@@ -211,5 +242,56 @@ describe('SettingsPage', () => {
     expect(await screen.findByText('Conexão Graph válida')).toBeInTheDocument();
     expect(await screen.findByText(/Version Workers: 2\/2 heartbeat/i)).toBeInTheDocument();
     expect(screen.getByText(/Enterprise Apps extras válidas: 1/i)).toBeInTheDocument();
+  });
+
+  it('configura e salva os agendamentos server-side', async () => {
+    let savedSchedule: Record<string, unknown> | undefined;
+    useSettingsHandlers();
+    server.use(
+      http.post('/api/schedule', async ({ request }) => {
+        savedSchedule = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /editar configurações/i }));
+    fireEvent.click(screen.getByRole('button', { name: /agendamento \(scheduler\)/i }));
+
+    expect(screen.getByText(/2026-06-09T02:00:00Z/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /habilitar scan normal agendado/i }));
+    fireEvent.change(screen.getByLabelText('Frequência do scan normal'), { target: { value: 'weekly' } });
+    fireEvent.change(screen.getByLabelText('Hora do scan normal'), { target: { value: '01:30' } });
+    fireEvent.change(screen.getByLabelText('Busca do scan agendado'), { target: { value: 'projetos' } });
+    fireEvent.change(screen.getByLabelText('Máximo de sites do scan agendado'), { target: { value: '12000' } });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /habilitar scan de versões agendado/i }));
+    fireEvent.change(screen.getByLabelText('Modo do scan de versões agendado'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('Limite do scan de versões agendado'), { target: { value: '750000' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /recalcular versões no agendamento/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^salvar agendamentos$/i }));
+
+    await waitFor(() => expect(savedSchedule).toMatchObject({
+      schedule: {
+        normal: {
+          enabled: true,
+          freq: 'weekly',
+          time: '01:30',
+          weekdays: [1, 2, 3, 4, 5],
+          allSites: true,
+          siteSearch: 'projetos',
+          maxSites: 12000,
+        },
+        versions: {
+          enabled: true,
+          mode: 'all',
+          maxItems: 750000,
+          force: true,
+          target: 'latest',
+        },
+      },
+    }));
+    expect(await screen.findByText(/agendamentos salvos com sucesso/i)).toBeInTheDocument();
   });
 });

@@ -2,7 +2,9 @@ import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import {
   diagnoseAuth,
+  getSchedule,
   getWorkersHealth,
+  saveSchedule,
   searchOauthGroups,
   validateOauthGroups,
 } from '../settings.api';
@@ -100,5 +102,48 @@ describe('settings.api', () => {
         extraAppsConfigured: 1,
       },
     });
+  });
+
+  it('carrega e salva o scheduler pelo endpoint dedicado', async () => {
+    const schedule = {
+      normal: {
+        enabled: true,
+        freq: 'weekly' as const,
+        time: '01:30',
+        weekdays: [1, 3, 5],
+        allSites: true,
+        siteSearch: '*',
+        maxSites: 12000,
+      },
+      versions: {
+        enabled: true,
+        freq: 'daily' as const,
+        time: '04:00',
+        weekdays: [1, 2, 3, 4, 5],
+        target: 'latest' as const,
+        mode: 'top' as const,
+        topN: 15000,
+        maxItems: 999999999,
+        force: true,
+      },
+    };
+    server.use(
+      http.get('/api/schedule', () =>
+        HttpResponse.json({
+          schedule,
+          state: { lastRun: { normal: '2026-06-10', versions: '2026-06-09' } },
+        }),
+      ),
+      http.post('/api/schedule', async ({ request }) => {
+        await expect(request.json()).resolves.toEqual({ schedule });
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    await expect(getSchedule()).resolves.toMatchObject({
+      schedule,
+      state: { lastRun: { normal: '2026-06-10' } },
+    });
+    await expect(saveSchedule(schedule)).resolves.toEqual({ ok: true });
   });
 });
