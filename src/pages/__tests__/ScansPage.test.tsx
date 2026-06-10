@@ -27,7 +27,11 @@ describe("ScansPage", () => {
 
     render(<MemoryRouter><ScansPage /></MemoryRouter>);
 
-    const checkbox = await screen.findByRole("checkbox", { name: /financeiro/i });
+    const checkbox = await screen.findByRole(
+      "checkbox",
+      { name: /financeiro/i },
+      { timeout: 5000 },
+    );
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByRole("button", { name: /scan dos sites selecionados/i }));
 

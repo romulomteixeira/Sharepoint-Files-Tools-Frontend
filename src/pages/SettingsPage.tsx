@@ -14,13 +14,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   getConfig,
+  getWorkersHealth,
   getSessionInfo,
+  diagnoseAuth,
   saveConfig,
   searchOauthGroups,
   validateOauthGroups,
   type AppConfig,
+  type AuthDiagnosis,
+  type GraphExtraApp,
   type OauthGroup,
   type OauthGroupValidationResult,
+  type WorkersHealth,
 } from '../api/settings.api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -102,7 +107,32 @@ function redactSecrets(config: AppConfig): AppConfig {
     clientSecret: '',
     oauthClientSecret: '',
     smtpPass: '',
+    graphExtraApps: (config.graphExtraApps ?? []).map(app => ({
+      ...app,
+      clientSecret: '',
+      hasClientSecret: app.hasClientSecret || Boolean(app.clientSecret),
+    })),
   };
+}
+
+function validateVersionWorkerDraft(config: AppConfig): void {
+  if (!config.useVersionWorker) return;
+  const count = Math.max(1, Math.min(16, Math.trunc(Number(config.nVersionWorkers) || 1)));
+  const requiredApps = Math.max(0, count - 1);
+  const apps = config.graphExtraApps ?? [];
+
+  for (let index = 0; index < requiredApps; index += 1) {
+    const app = apps[index];
+    if (!app?.clientId?.trim() || (!app.clientSecret?.trim() && !app.hasClientSecret)) {
+      throw new Error(`Preencha Client ID e Client Secret do Worker ${index + 2}.`);
+    }
+  }
+}
+
+function versionModeLabel(mode: string): string {
+  if (mode === 'none') return 'Não calcular automaticamente';
+  if (mode === 'all') return 'Todos (muito lento)';
+  return 'Somente Top arquivos (recomendado)';
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -121,6 +151,10 @@ export default function SettingsPage(): React.ReactElement {
   const [groupSearching, setGroupSearching] = useState(false);
   const [groupValidation, setGroupValidation] = useState<OauthGroupValidationResult | null>(null);
   const [validatingGroups, setValidatingGroups] = useState(false);
+  const [authDiagnosis, setAuthDiagnosis] = useState<AuthDiagnosis | null>(null);
+  const [workersHealth, setWorkersHealth] = useState<WorkersHealth | null>(null);
+  const [diagnosingAuth, setDiagnosingAuth] = useState(false);
+  const [checkingWorkers, setCheckingWorkers] = useState(false);
 
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -143,6 +177,7 @@ export default function SettingsPage(): React.ReactElement {
     setError(null);
     setSaved(false);
     try {
+      validateVersionWorkerDraft(draft);
       await saveConfig(draft);
       const savedConfig = redactSecrets(draft);
       setConfig(savedConfig);
@@ -181,6 +216,51 @@ export default function SettingsPage(): React.ReactElement {
   const setBool = (key: keyof AppConfig) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setDraft(d => ({ ...d, [key]: e.target.checked }));
+
+  const versionWorkerCount = Math.max(1, Math.min(16, Math.trunc(num('nVersionWorkers') || 1)));
+  const requiredExtraApps = bool('useVersionWorker') ? Math.max(0, versionWorkerCount - 1) : 0;
+
+  const updateGraphExtraApp = (index: number, patch: Partial<GraphExtraApp>) => {
+    setDraft(current => {
+      const apps = [...(current.graphExtraApps ?? config?.graphExtraApps ?? [])];
+      while (apps.length <= index) apps.push({ clientId: '', clientSecret: '' });
+      apps[index] = { ...apps[index], ...patch };
+      return { ...current, graphExtraApps: apps };
+    });
+  };
+
+  const handleVersionWorkerCount = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const count = Math.max(1, Math.min(16, Math.trunc(Number(e.target.value) || 1)));
+    setDraft(current => {
+      const apps = [...(current.graphExtraApps ?? config?.graphExtraApps ?? [])];
+      while (apps.length < Math.max(0, count - 1)) apps.push({ clientId: '', clientSecret: '' });
+      return { ...current, nVersionWorkers: count, graphExtraApps: apps };
+    });
+  };
+
+  const handleDiagnoseAuth = async () => {
+    setDiagnosingAuth(true);
+    setError(null);
+    try {
+      setAuthDiagnosis(await diagnoseAuth());
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setDiagnosingAuth(false);
+    }
+  };
+
+  const handleWorkersHealth = async () => {
+    setCheckingWorkers(true);
+    setError(null);
+    try {
+      setWorkersHealth(await getWorkersHealth());
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setCheckingWorkers(false);
+    }
+  };
 
   const addOauthGroup = (key: 'oauthReaderGroups' | 'oauthAdminGroups', group: OauthGroup) => {
     setDraft(current => {
@@ -541,74 +621,101 @@ export default function SettingsPage(): React.ReactElement {
 
           {/* ── Versões Automáticas ──────────────────────────────────────── */}
           <Section title="Versões Automáticas" subtitle="Coleta automática de histórico de versões">
-            <div style={ss.grid3}>
-              <Field label="Modo de Versões">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.grid3}>
+                <Field label="Modelo de versionamento">
                 {editMode
                   ? (
-                    <select style={ss.select} value={str('versionsAuto')} onChange={setStr('versionsAuto')}>
-                      <option value="top">Top N maiores arquivos</option>
-                      <option value="all">Todos os arquivos</option>
-                      <option value="none">Desabilitado</option>
+                    <select aria-label="Modelo de versionamento" style={ss.select} value={str('versionsAuto')} onChange={setStr('versionsAuto')}>
+                      <option value="none">Não calcular automaticamente</option>
+                      <option value="top">Somente Top arquivos (recomendado)</option>
+                      <option value="all">Todos (muito lento)</option>
                     </select>
                   )
-                  : <input style={ss.input} value={str('versionsAuto')} readOnly />
+                  : <input aria-label="Modelo de versionamento" style={ss.input} value={versionModeLabel(str('versionsAuto'))} readOnly />
                 }
-              </Field>
-              <Field label="Top N arquivos" hint="Relevante quando modo = top">
-                <input
-                  style={ss.input}
-                  type="number" min={1} max={100000}
-                  value={num('versionsAutoTopN') || ''}
-                  onChange={setNum('versionsAutoTopN')}
-                  readOnly={!editMode}
-                />
-              </Field>
-              <Field label="Máx. Itens">
-                <input
-                  style={ss.input}
-                  type="number" min={1}
-                  value={num('versionsAutoMaxItems') || ''}
-                  onChange={setNum('versionsAutoMaxItems')}
-                  readOnly={!editMode}
-                />
-              </Field>
-              <Field label="Concorrência de Versões">
-                <input
-                  style={ss.input}
-                  type="number" min={1} max={20}
-                  value={num('versionsAutoConcurrency') || ''}
-                  onChange={setNum('versionsAutoConcurrency')}
-                  readOnly={!editMode}
-                />
-              </Field>
-              <Field label="Batch Size">
-                <input
-                  style={ss.input}
-                  type="number" min={1}
-                  value={num('versionsBatchSize') || ''}
-                  onChange={setNum('versionsBatchSize')}
-                  readOnly={!editMode}
-                />
-              </Field>
-              <Field label="Forçar Re-enriquecimento">
-                <label style={ss.checkRow}>
-                  <input
-                    type="checkbox"
-                    checked={bool('versionsAutoForce')}
-                    onChange={setBool('versionsAutoForce')}
-                    disabled={!editMode}
-                    style={{ marginRight: 6 }}
-                  />
-                  <span style={{ fontSize: 13, color: C.text }}>Enriquecer mesmo se já processado</span>
-                </label>
-              </Field>
+                </Field>
+                {str('versionsAuto') === 'top' && (
+                  <Field label="Top N arquivos" hint="Quantidade de maiores arquivos que terão o histórico calculado">
+                    <input
+                      aria-label="Top N arquivos"
+                      style={ss.input}
+                      type="number" min={10} max={25000}
+                      value={num('versionsAutoTopN') || 25000}
+                      onChange={setNum('versionsAutoTopN')}
+                      readOnly={!editMode}
+                    />
+                  </Field>
+                )}
+                {str('versionsAuto') === 'all' && (
+                  <Field label="Máx. itens (Todos)" hint="Proteção operacional para o modo Todos">
+                    <input
+                      aria-label="Máx. itens (Todos)"
+                      style={ss.input}
+                      type="number" min={100} max={999999999}
+                      value={num('versionsAutoMaxItems') || 999999999}
+                      onChange={setNum('versionsAutoMaxItems')}
+                      readOnly={!editMode}
+                    />
+                  </Field>
+                )}
+              </div>
+
+              {str('versionsAuto') !== 'none' && (
+                <div style={ss.grid3}>
+                  <Field label="Conc" hint="Requisições paralelas de histórico (1–6)">
+                    <input
+                      aria-label="Concorrência de versões"
+                      style={ss.input}
+                      type="number" min={1} max={6}
+                      value={num('versionsAutoConcurrency') || 6}
+                      onChange={setNum('versionsAutoConcurrency')}
+                      readOnly={!editMode}
+                    />
+                  </Field>
+                  <Field label="Batch" hint="Itens agrupados por lote (1–20)">
+                    <input
+                      aria-label="Batch de versões"
+                      style={ss.input}
+                      type="number" min={1} max={20}
+                      value={num('versionsBatchSize') || 10}
+                      onChange={setNum('versionsBatchSize')}
+                      readOnly={!editMode}
+                    />
+                  </Field>
+                  <Field label="Recalcular (force)" hint="Ignora o estado processado e enriquece novamente">
+                    <label style={ss.checkRow}>
+                      <input
+                        type="checkbox"
+                        checked={bool('versionsAutoForce')}
+                        onChange={setBool('versionsAutoForce')}
+                        disabled={!editMode}
+                        style={{ marginRight: 6 }}
+                      />
+                      <span style={{ fontSize: 13, color: C.text }}>Forçar novo cálculo</span>
+                    </label>
+                  </Field>
+                </div>
+              )}
+
+              {str('versionsAuto') === 'none' && (
+                <div style={ss.infoInline}>
+                  O scan não iniciará enriquecimento automático de versões. O cálculo ainda poderá ser executado manualmente.
+                </div>
+              )}
             </div>
           </Section>
 
           {/* ── Workers de Versão ────────────────────────────────────────── */}
           <Section title="Workers de Versão" subtitle="Processos paralelos dedicados ao enriquecimento de versões" defaultOpen={false}>
-            <div style={ss.grid3}>
-              <Field label="Usar Version Workers">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.infoInline}>
+                <strong>Desabilitado:</strong> o enriquecimento roda no processo web legado.{' '}
+                <strong>Habilitado:</strong> as cargas entram na fila persistente e são consumidas por processos Node separados no backend.
+                O Worker 1 usa a App Registration principal; cada worker adicional exige uma Enterprise App abaixo.
+              </div>
+              <div style={ss.grid3}>
+                <Field label="USE_VERSION_WORKER">
                 <label style={ss.checkRow}>
                   <input
                     type="checkbox"
@@ -619,17 +726,115 @@ export default function SettingsPage(): React.ReactElement {
                   />
                   <span style={{ fontSize: 13, color: C.text }}>Habilitado</span>
                 </label>
-              </Field>
-              <Field label="Número de Workers" hint="1–8 (requer app registrations adicionais)">
-                <input
-                  style={ss.input}
-                  type="number" min={1} max={8}
-                  value={num('nVersionWorkers') || ''}
-                  onChange={setNum('nVersionWorkers')}
-                  readOnly={!editMode}
-                  disabled={!bool('useVersionWorker')}
-                />
-              </Field>
+                </Field>
+                <Field label="N_VERSION_WORKERS" hint="Quantidade total de processos (1–16)">
+                  <input
+                    aria-label="Número de Version Workers"
+                    style={ss.input}
+                    type="number" min={1} max={16}
+                    value={versionWorkerCount}
+                    onChange={handleVersionWorkerCount}
+                    readOnly={!editMode}
+                    disabled={!bool('useVersionWorker')}
+                  />
+                </Field>
+              </div>
+
+              {bool('useVersionWorker') && requiredExtraApps === 0 && (
+                <div style={ss.validationOk}>Apenas o Worker 1 será usado com a App Registration principal.</div>
+              )}
+
+              {bool('useVersionWorker') && requiredExtraApps > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={ss.validationBox}>
+                    N_VERSION_WORKERS={versionWorkerCount} exige {requiredExtraApps} app(s) extra(s), uma para cada Worker 2 até Worker {versionWorkerCount}.
+                  </div>
+                  {Array.from({ length: requiredExtraApps }, (_, index) => {
+                    const app = (draft.graphExtraApps ?? config?.graphExtraApps ?? [])[index] ?? { clientId: '' };
+                    const workerNumber = index + 2;
+                    return (
+                      <div key={workerNumber} style={ss.workerCard}>
+                        <div style={ss.workerHead}>
+                          <strong>Worker {workerNumber}</strong>
+                          <span style={ss.workerPill}>GRAPH_EXTRA_APPS[{index}]</span>
+                        </div>
+                        <div style={ss.grid3}>
+                          <Field label="Label" hint="Nome amigável da Enterprise App">
+                            <input
+                              aria-label={`Label do Worker ${workerNumber}`}
+                              style={ss.input}
+                              value={app.label ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { label: e.target.value })}
+                              readOnly={!editMode}
+                              placeholder={`app-worker-${workerNumber}`}
+                            />
+                          </Field>
+                          <Field label="Client ID">
+                            <input
+                              aria-label={`Client ID do Worker ${workerNumber}`}
+                              style={ss.input}
+                              value={app.clientId ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { clientId: e.target.value })}
+                              readOnly={!editMode}
+                            />
+                          </Field>
+                          <Field
+                            label="Client Secret"
+                            hint={app.hasClientSecret ? 'Secret já salvo. Deixe vazio para manter.' : 'Cole o Secret VALUE.'}
+                          >
+                            <input
+                              aria-label={`Client Secret do Worker ${workerNumber}`}
+                              style={ss.input}
+                              type="password"
+                              value={app.clientSecret ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { clientSecret: e.target.value })}
+                              readOnly={!editMode}
+                              placeholder={app.hasClientSecret ? '••••••••' : 'Secret VALUE'}
+                              autoComplete="new-password"
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={ss.inlineRow}>
+                <button type="button" style={ss.btnSecondary} onClick={handleDiagnoseAuth} disabled={diagnosingAuth}>
+                  {diagnosingAuth ? 'Diagnosticando…' : 'Diagnosticar conexão Graph'}
+                </button>
+                <button type="button" style={ss.btnSecondary} onClick={handleWorkersHealth} disabled={checkingWorkers}>
+                  {checkingWorkers ? 'Consultando…' : 'Verificar Version Workers'}
+                </button>
+              </div>
+
+              {authDiagnosis && (
+                <div style={authDiagnosis.ok ? ss.validationOk : ss.diagnosticError}>
+                  <strong>{authDiagnosis.ok ? 'Conexão Graph válida' : 'Falha na conexão Graph'}</strong>
+                  {authDiagnosis.org && <div>Tenant: {authDiagnosis.org.displayName || '—'} ({authDiagnosis.org.id || '—'})</div>}
+                  {authDiagnosis.authority?.tokenUrl && <div style={ss.monoHint}>Token: {authDiagnosis.authority.tokenUrl}</div>}
+                  {authDiagnosis.openid?.ok && <div style={ss.monoHint}>OpenID issuer: {authDiagnosis.openid.issuer}</div>}
+                  {!authDiagnosis.openid?.ok && authDiagnosis.openid?.error && <div>OpenID: {authDiagnosis.openid.error}</div>}
+                  {authDiagnosis.aad?.aadsts && <div>AADSTS: {authDiagnosis.aad.aadsts}</div>}
+                  {authDiagnosis.error && <div>{authDiagnosis.error}</div>}
+                  {authDiagnosis.tenantFormatHint && <div>{authDiagnosis.tenantFormatHint}</div>}
+                </div>
+              )}
+
+              {workersHealth?.versionWorker && (
+                <div style={!workersHealth.versionWorker.configError ? ss.validationOk : ss.diagnosticError}>
+                  <strong>
+                    Version Workers: {workersHealth.versionWorker.heartbeatCount}/{workersHealth.versionWorker.expected} heartbeat(s)
+                  </strong>
+                  <div>Processos locais: {workersHealth.versionWorker.localProcessCount}</div>
+                  <div>Enterprise Apps extras válidas: {workersHealth.versionWorker.extraAppsConfigured}</div>
+                  {workersHealth.versionWorker.extraAppsInvalid > 0 && (
+                    <div>Enterprise Apps inválidas: {workersHealth.versionWorker.extraAppsInvalid}</div>
+                  )}
+                  {workersHealth.versionWorker.configError && <div>{workersHealth.versionWorker.configError}</div>}
+                </div>
+              )}
             </div>
           </Section>
 
@@ -860,11 +1065,49 @@ const ss: Record<string, React.CSSProperties> = {
     color: C.good,
     fontSize: 12,
   },
+  diagnosticError: {
+    padding: '10px 12px',
+    background: '#fff5f5',
+    border: '1px solid #fca5a5',
+    borderRadius: 4,
+    color: C.bad,
+    fontSize: 12,
+  },
   validationRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 12,
     paddingTop: 6,
+  },
+  infoInline: {
+    padding: '10px 12px',
+    background: '#ebf8ff',
+    border: '1px solid #90cdf4',
+    borderRadius: 4,
+    color: '#2c5282',
+    fontSize: 12,
+    lineHeight: 1.5,
+  },
+  workerCard: {
+    padding: 12,
+    background: '#f7f9fc',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+  },
+  workerHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  workerPill: {
+    padding: '2px 7px',
+    background: '#edf2f7',
+    border: `1px solid ${C.border}`,
+    borderRadius: 999,
+    color: C.muted,
+    fontFamily: 'monospace',
+    fontSize: 10,
   },
 
   actionBar: {

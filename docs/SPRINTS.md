@@ -813,8 +813,20 @@ equivalente no React:
 - Secrets redigidos e removidos do estado do navegador após salvamento
 - Testes de API e interface para payloads SMTP/OAuth e validação de grupos
 
+### ✅ Bloco 2 — versionamento, Enterprise Apps e diagnóstico
+
+- Modelos `none`, `top` e `all` com campos condicionais e descrições operacionais
+- Limites homologados de Top N, máximo de itens, concorrência e batch
+- Flag de recálculo forçado preservada
+- `USE_VERSION_WORKER` e `N_VERSION_WORKERS` configuráveis de 1 a 16
+- Formulários dinâmicos para Label, Client ID e Client Secret dos workers adicionais
+- Preservação de secrets já salvos por meio de `hasClientSecret`
+- Validação client-side das credenciais obrigatórias antes do salvamento
+- Diagnóstico Graph/OpenID via `POST /api/auth/diagnose`
+- Diagnóstico de processos e heartbeats via `GET /api/health/workers`
+- Testes de API, interface e homologação visual com três workers
+
 ### 📋 Próximos blocos
 
-- Bloco 2 — modelo de versionamento, apps extras e diagnóstico de workers
 - Bloco 3 — listagem explícita, seleção e paginação de sites
 - Bloco 4 — escopo, modo, limites e cancelamento de scans
