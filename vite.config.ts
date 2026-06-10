@@ -15,17 +15,17 @@ export default defineConfig({
     proxy: {
       // Em desenvolvimento local, repassa chamadas /api para o backend
       '/api': {
-        target: process.env.VITE_API_BASE_URL || 'http://localhost:8787',
+        target: process.env.API_PROXY_TARGET || process.env.VITE_API_BASE_URL || 'http://localhost:8787',
         changeOrigin: true,
         secure: false,
       },
       '/health': {
-        target: process.env.VITE_API_BASE_URL || 'http://localhost:8787',
+        target: process.env.API_PROXY_TARGET || process.env.VITE_API_BASE_URL || 'http://localhost:8787',
         changeOrigin: true,
         secure: false,
       },
       '/metrics': {
-        target: process.env.VITE_API_BASE_URL || 'http://localhost:8787',
+        target: process.env.API_PROXY_TARGET || process.env.VITE_API_BASE_URL || 'http://localhost:8787',
         changeOrigin: true,
         secure: false,
       },

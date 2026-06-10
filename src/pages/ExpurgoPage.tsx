@@ -19,7 +19,7 @@ import { Link } from 'react-router-dom';
 import { useApi }               from '../hooks/useApi';
 import { useJobStream }         from '../hooks/useJobStream';
 import { listScans }            from '../api/scans.api';
-import { getInventorySummary, getInventorySites, getInventoryFiles } from '../api/inventory.api';
+import { getInventorySummary, getInventorySites } from '../api/inventory.api';
 import {
   requestPurgeToken,
   simulateVersionRetention,
@@ -32,7 +32,7 @@ import {
   exportRecycleBinBlob,
   getPurgeJobStatus,
 } from '../api/purge.api';
-import type { FileItem, SiteRollup, JobStatusDetail, InventorySummary } from '../types';
+import type { SiteRollup, JobStatusDetail, InventorySummary } from '../types';
 import type {
   VersionRetentionRule,
   FileRetentionParams,
@@ -40,6 +40,7 @@ import type {
   ScopeParam,
   SimulateFileResult,
   SimulateRecycleBinResult,
+  VersionRetentionPreviewItem,
 } from '../api/purge.api';
 import { ApiClientError } from '../api/client';
 
@@ -103,10 +104,6 @@ function fmtNum(n: number | undefined): string {
 function fmtDate(iso: string | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('pt-BR');
-}
-
-function daysAgo(days: number): Date {
-  return new Date(Date.now() - days * 86_400_000);
 }
 
 function apiErrMsg(err: unknown): string {
@@ -351,7 +348,7 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
   const [filterSize,  setFilterSize]  = useState('');
   const [filterSite,  setFilterSite]  = useState('');
 
-  const [previewFiles,   setPreviewFiles]   = useState<FileItem[]>([]);
+  const [previewFiles,   setPreviewFiles]   = useState<VersionRetentionPreviewItem[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError,   setPreviewError]   = useState<string | null>(null);
   const [totalMatches,   setTotalMatches]   = useState(0);
@@ -393,26 +390,10 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
     setPreviewFiles([]); setTotalMatches(0); setTotalBytes(0);
     setPreviewError(null); setPreviewLoading(true); setStep('preview');
     try {
-      const rule = buildRule();
-      const [simulation, inventory] = await Promise.all([
-        simulateVersionRetention(rule),
-        getInventoryFiles(scanId, {
-          extension: filterExt  || undefined,
-          siteId:    filterSite || undefined,
-          sort:      'size_desc',
-          pageSize:  500,
-        }),
-      ]);
-      const cutoff   = filterAge  ? daysAgo(Number(filterAge))       : null;
-      const minBytes = filterSize ? Number(filterSize) * 1024 * 1024 : null;
-      const sample = inventory.items.filter(f => {
-        if (cutoff   && f.modifiedAt && new Date(f.modifiedAt) > cutoff) return false;
-        if (minBytes && (f.totalBytes ?? 0) < minBytes) return false;
-        return true;
-      });
-      setTotalMatches(simulation.count);
-      setTotalBytes(simulation.bytes);
-      setPreviewFiles(sample.slice(0, PREVIEW_LIMIT));
+      const simulation = await simulateVersionRetention(buildRule());
+      setTotalMatches(simulation.result.filesAffected);
+      setTotalBytes(simulation.result.purgeBytes);
+      setPreviewFiles(simulation.preview.slice(0, PREVIEW_LIMIT));
     } catch (err) {
       setPreviewError(apiErrMsg(err));
     } finally {
@@ -549,12 +530,12 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
                   </tr></thead>
                   <tbody>
                     {previewFiles.map((f, i) => (
-                      <tr key={f.id} style={i % 2 === 0 ? s.trEven : s.trOdd}>
+                      <tr key={`${f.driveId || 'drive'}:${f.itemId || i}`} style={i % 2 === 0 ? s.trEven : s.trOdd}>
                         <td style={s.td}><div style={s.fileName}>{f.webUrl ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a> : f.name}</div></td>
-                        <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{f.siteId}</div></td>
+                        <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{f.siteName || f.siteId}</div></td>
                         <td style={s.td}><span style={s.extBadge}>{f.extension || '—'}</span></td>
-                        <td style={{ ...s.td, textAlign: 'right' }}>{fmtBytes(f.totalBytes)}</td>
-                        <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(f.modifiedAt)}</td>
+                        <td style={{ ...s.td, textAlign: 'right' }}>{fmtBytes(f.purgeBytes)}</td>
+                        <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(f.modified)}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -58,18 +58,39 @@ export interface VersionRetentionRule {
 /** Alias de compatibilidade */
 export type PurgeRule = VersionRetentionRule;
 
+export interface VersionRetentionPreviewItem {
+  scanId?:                 string;
+  siteId?:                 string;
+  siteName?:               string;
+  siteUrl?:                string;
+  driveId?:                string;
+  driveName?:              string;
+  itemId?:                 string;
+  name?:                   string;
+  extension?:              string;
+  fullPath?:               string;
+  sizeBytes?:              number;
+  modified?:               string;
+  webUrl?:                 string;
+  versionCount?:           number;
+  purgeCount?:             number;
+  purgeBytes?:             number;
+  totalBytes?:             number;
+  remainingVersionCount?:  number;
+}
+
 export interface SimulateVersionResult {
-  count:  number;
-  bytes:  number;
-  items?: Array<{
-    fileId?:    string;
-    fileName?:  string;
-    siteId?:    string;
-    driveId?:   string;
-    versionId?: string;
-    sizeBytes?: number;
-    modifiedAt?: string;
-  }>;
+  scanId: string;
+  result: {
+    filesAffected:   number;
+    purgeVersions:   number;
+    purgeBytes:      number;
+    purgeHuman:      string;
+    sitesAffected:   number;
+    unknownSizeCount: number;
+    summary?:        string;
+  };
+  preview: VersionRetentionPreviewItem[];
 }
 
 // ─── Expurgo de arquivos ──────────────────────────────────────────────────────

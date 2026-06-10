@@ -190,6 +190,52 @@ export interface BlobDownload {
   filename: string | null;
 }
 
+export type FileOrJsonResponse<T> =
+  | { kind: 'file'; blob: Blob; filename: string | null }
+  | { kind: 'json'; data: T; status: number };
+
+function responseFilename(res: Response): string | null {
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
+ * Executa GET autenticado que pode retornar JSON (job assíncrono) ou arquivo.
+ * JSONL/NDJSON é tratado como arquivo e nunca passa por JSON.parse().
+ */
+export async function getFileOrJson<T>(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined | null>,
+  options?: RequestInit,
+): Promise<FileOrJsonResponse<T>> {
+  const res = await fetchWithTimeout(buildUrl(path, params), {
+    method: 'GET',
+    credentials: 'include',
+    ...options,
+  });
+
+  if (!res.ok) {
+    await parseResponse<never>(res);
+  }
+
+  const contentType = res.headers.get('content-type') ?? '';
+  const isJsonPayload = /^application\/json(?:\s*;|$)/i.test(contentType.trim());
+  if (isJsonPayload) {
+    return {
+      kind: 'json',
+      data: await parseResponse<T>(res),
+      status: res.status,
+    };
+  }
+
+  return {
+    kind: 'file',
+    blob: await res.blob(),
+    filename: responseFilename(res),
+  };
+}
+
 /** Executa POST autenticado e retorna um blob para download. */
 export async function postBlob(
   path: string,
@@ -208,11 +254,9 @@ export async function postBlob(
     await parseResponse<never>(res);
   }
 
-  const disposition = res.headers.get('content-disposition') ?? '';
-  const match = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
   return {
     blob: await res.blob(),
-    filename: match?.[1]?.trim() ?? null,
+    filename: responseFilename(res),
   };
 }
 
