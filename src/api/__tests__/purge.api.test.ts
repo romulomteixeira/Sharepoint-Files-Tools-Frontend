@@ -2,7 +2,6 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import {
   requestPurgeToken,
-  simulateSiteDeletion,
   simulateVersionRetention,
 } from "../purge.api";
 import { server } from "../../test/server";
@@ -15,9 +14,9 @@ describe("purge.api", () => {
     server.use(
       http.post("/api/purge/confirm", async ({ request }) => {
         await expect(request.json()).resolves.toEqual({
-          operation: "retention_sites",
+          operation: "retention_versions",
           scanId: "scan-1",
-          siteIds: ["site-1"],
+          keepVersions: 10,
         });
         return envelope({
           confirmToken: "token",
@@ -28,9 +27,9 @@ describe("purge.api", () => {
     );
 
     await expect(
-      requestPurgeToken("retention_sites", {
+      requestPurgeToken("retention_versions", {
         scanId: "scan-1",
-        siteIds: ["site-1"],
+        keepVersions: 10,
       }),
     ).resolves.toMatchObject({ confirmToken: "token" });
   });
@@ -49,26 +48,5 @@ describe("purge.api", () => {
     await expect(
       simulateVersionRetention({ scanId: "scan-1", olderThanDays: 90 }),
     ).resolves.toMatchObject({ count: 850, bytes: 4096 });
-  });
-
-  it("documenta o contrato de busca da simulação de sites", async () => {
-    server.use(
-      http.post("/api/sites/simulate", async ({ request }) => {
-        await expect(request.json()).resolves.toEqual({
-          scanId: "scan-1",
-          search: "rh",
-        });
-        return envelope({
-          scanId: "scan-1",
-          search: "rh",
-          preview: [],
-          result: { sites: 0, totalBytes: 0, totalBytesHuman: "0 B" },
-        });
-      }),
-    );
-
-    await expect(simulateSiteDeletion("scan-1", "rh")).resolves.toMatchObject({
-      search: "rh",
-    });
   });
 });

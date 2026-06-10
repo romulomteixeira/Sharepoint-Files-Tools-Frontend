@@ -5,7 +5,7 @@
  * aguardar a conclusão via polling em getJobStatus() antes de baixar.
  */
 
-import { get, post } from './client';
+import { get } from './client';
 import type { ExportJob, ExportFormat } from '../types';
 
 export interface ExportInventoryParams {
@@ -39,15 +39,4 @@ export function getDownloadUrl(jobId: string): string {
 /** Verifica status do job de exportação. */
 export async function getExportJobStatus(jobId: string): Promise<ExportJob> {
   return get<ExportJob>(`/api/jobs/${jobId}/status`);
-}
-
-/**
- * Solicita token de confirmação para operação de expurgo.
- * Deve ser chamado antes de execute-job para operações destrutivas.
- */
-export async function requestPurgeConfirmToken(
-  operation: string,
-  params: Record<string, unknown>,
-): Promise<{ confirmToken: string; expiresAt: string; requestHash: string }> {
-  return post('/api/purge/confirm', { operation, params });
 }
