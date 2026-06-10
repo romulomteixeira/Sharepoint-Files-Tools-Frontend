@@ -9,7 +9,19 @@ export interface CreateScanParams {
   tenantId?: string;
   label?: string;
   siteIds?: string[];
+  allSites?: boolean;
+  siteSearch?: string;
+  maxSites?: number;
+  mode?: ScanMode;
   enableVersioning?: boolean;
+}
+
+export type ScanMode = 'full' | 'fast' | 'estimate';
+
+export interface ScanQuickMode {
+  maxSites: number;
+  maxDrivesPerSite: number;
+  maxItemsPerDrive: number;
 }
 
 export interface SiteSearchResult {
@@ -47,6 +59,11 @@ interface CreateScanResponse {
   status?: string;
   createdAt?: string;
 }
+
+const QUICK_MODES: Record<Exclude<ScanMode, 'full'>, ScanQuickMode> = {
+  fast: { maxSites: 10, maxDrivesPerSite: 5, maxItemsPerDrive: 2000 },
+  estimate: { maxSites: 30, maxDrivesPerSite: 8, maxItemsPerDrive: 4000 },
+};
 
 function normalizeStatus(status?: string): Scan['status'] {
   switch (String(status || '').toUpperCase()) {
@@ -91,11 +108,20 @@ function normalizeScan(scan: LegacyScan): Scan {
 /** Inicia um novo scan e retorna o objeto de scan criado. */
 export async function createScan(params?: CreateScanParams): Promise<Scan> {
   const siteIds = params?.siteIds?.filter(Boolean) ?? [];
+  const allSites = params?.allSites ?? siteIds.length === 0;
+  const mode = params?.mode ?? 'full';
+  const quickMode = mode === 'full' ? null : QUICK_MODES[mode];
   const payload = {
-    allSites: siteIds.length === 0,
-    ...(siteIds.length > 0 ? { sites: siteIds } : { siteSearch: '*', maxSites: 5000 }),
+    allSites,
+    ...(allSites
+      ? {
+          siteSearch: params?.siteSearch?.trim() || '*',
+          maxSites: Math.max(1, Math.min(20000, params?.maxSites ?? 5000)),
+        }
+      : { sites: siteIds }),
     options: {
       enableVersioning: params?.enableVersioning ?? false,
+      quickMode,
     },
   };
   const response = await post<CreateScanResponse>('/api/scans', payload);
@@ -106,6 +132,7 @@ export async function createScan(params?: CreateScanParams): Promise<Scan> {
     request: {
       allSites: payload.allSites,
       sites: siteIds,
+      ...('siteSearch' in payload ? { siteSearch: payload.siteSearch, maxSites: payload.maxSites } : {}),
       options: payload.options,
     },
   });

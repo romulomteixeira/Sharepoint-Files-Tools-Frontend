@@ -4,8 +4,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { createScan, listScans, searchSites } from '../api/scans.api';
-import type { SiteSearchResult } from '../api/scans.api';
+import { cancelScan, createScan, listScans, searchSites } from '../api/scans.api';
+import type { ScanMode, SiteSearchResult } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import type { Scan } from '../types';
@@ -43,6 +43,18 @@ function scanType(scan: Scan): string {
   return '—';
 }
 
+function scanMode(scan: Scan): string {
+  const quickMode = scan.request?.options?.quickMode;
+  if (!quickMode) return 'Completo';
+  if (quickMode.maxSites === 10 && quickMode.maxDrivesPerSite === 5 && quickMode.maxItemsPerDrive === 2000) {
+    return 'Rápido';
+  }
+  if (quickMode.maxSites === 30 && quickMode.maxDrivesPerSite === 8 && quickMode.maxItemsPerDrive === 4000) {
+    return 'Estimativa';
+  }
+  return 'Personalizado';
+}
+
 export default function ScansPage(): React.ReactElement {
   const { data: scans, loading, error, refetch } = useApi(listScans, []);
   const [query, setQuery] = useState('*');
@@ -51,10 +63,15 @@ export default function ScansPage(): React.ReactElement {
   const [selected, setSelected] = useState<SiteSearchResult[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [scope, setScope] = useState<'selected' | 'all'>('all');
+  const [mode, setMode] = useState<ScanMode>('full');
+  const [scanSearch, setScanSearch] = useState('*');
+  const [scanMaxSites, setScanMaxSites] = useState(5000);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [enableVersioning, setEnableVersioning] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [cancellingScanId, setCancellingScanId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -66,6 +83,7 @@ export default function ScansPage(): React.ReactElement {
   const selectedIds = useMemo(() => new Set(selected.map((site) => site.id)), [selected]);
   const allResultsSelected = results.length > 0 && results.every((site) => selectedIds.has(site.id));
   const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+  const createDisabled = creating || (scope === 'selected' && selected.length === 0);
   const visibleResults = useMemo(
     () => results.slice((page - 1) * pageSize, page * pageSize),
     [page, pageSize, results],
@@ -107,10 +125,18 @@ export default function ScansPage(): React.ReactElement {
   }
 
   async function handleCreateScan(): Promise<void> {
+    if (scope === 'selected' && selected.length === 0) {
+      setToast({ text: 'Selecione ao menos um site para usar o escopo selecionado.', kind: 'error' });
+      return;
+    }
     setCreating(true);
     try {
       const scan = await createScan({
-        siteIds: selected.map((site) => site.id),
+        allSites: scope === 'all',
+        siteIds: scope === 'selected' ? selected.map((site) => site.id) : [],
+        siteSearch: scanSearch,
+        maxSites: scanMaxSites,
+        mode,
         enableVersioning,
       });
       setToast({ text: `Scan ${scan.id.slice(0, 8)} iniciado com sucesso.`, kind: 'success' });
@@ -121,6 +147,20 @@ export default function ScansPage(): React.ReactElement {
       setToast({ text, kind: 'error' });
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleCancelScan(scanId: string): Promise<void> {
+    setCancellingScanId(scanId);
+    try {
+      await cancelScan(scanId);
+      setToast({ text: `Cancelamento solicitado para o scan ${scanId.slice(0, 8)}.`, kind: 'success' });
+      await refetch();
+    } catch (err) {
+      const text = err instanceof ApiClientError ? err.message : 'Erro ao cancelar scan.';
+      setToast({ text, kind: 'error' });
+    } finally {
+      setCancellingScanId(null);
     }
   }
 
@@ -141,6 +181,67 @@ export default function ScansPage(): React.ReactElement {
 
       <section style={styles.panel}>
         <h2 style={styles.panelTitle}>Iniciar novo scan</h2>
+        <div style={styles.scanOptionsGrid}>
+          <div>
+            <label htmlFor="scan-scope" style={styles.label}>Escopo da varredura</label>
+            <select
+              id="scan-scope"
+              value={scope}
+              onChange={(event) => setScope(event.target.value as 'selected' | 'all')}
+              style={styles.input}
+            >
+              <option value="all">Todos os sites</option>
+              <option value="selected">Sites selecionados na lista</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="scan-mode" style={styles.label}>Modo</label>
+            <select
+              id="scan-mode"
+              value={mode}
+              onChange={(event) => setMode(event.target.value as ScanMode)}
+              style={styles.input}
+            >
+              <option value="full">Completo</option>
+              <option value="fast">Rápido</option>
+              <option value="estimate">Estimativa</option>
+            </select>
+          </div>
+        </div>
+        <div style={styles.modeHelp}>
+          {mode === 'full' && 'Sem limites adicionais por biblioteca ou arquivo.'}
+          {mode === 'fast' && 'Amostra rápida: até 10 sites, 5 bibliotecas por site e 2.000 itens por biblioteca.'}
+          {mode === 'estimate' && 'Estimativa ampliada: até 30 sites, 8 bibliotecas por site e 4.000 itens por biblioteca.'}
+        </div>
+
+        {scope === 'all' && (
+          <div style={styles.allSitesGrid}>
+            <div>
+              <label htmlFor="scan-site-search" style={styles.label}>Busca usada na varredura</label>
+              <input
+                id="scan-site-search"
+                value={scanSearch}
+                onChange={(event) => setScanSearch(event.target.value)}
+                placeholder="* ou palavra-chave"
+                style={styles.input}
+              />
+            </div>
+            <div>
+              <label htmlFor="scan-max-sites" style={styles.label}>Limite de sites</label>
+              <input
+                id="scan-max-sites"
+                type="number"
+                min={1}
+                max={20000}
+                value={scanMaxSites}
+                onChange={(event) => setScanMaxSites(Math.max(1, Math.min(20000, Number(event.target.value) || 1)))}
+                style={styles.input}
+              />
+            </div>
+          </div>
+        )}
+
+        <h3 style={styles.subsectionTitle}>Localizar e selecionar sites</h3>
         <div style={styles.searchGrid}>
           <div>
             <label htmlFor="site-search" style={styles.label}>Palavra-chave, nome ou URL</label>
@@ -251,12 +352,17 @@ export default function ScansPage(): React.ReactElement {
           </span>
         </label>
 
-        <button type="button" onClick={handleCreateScan} disabled={creating} style={styles.primaryButton}>
+        <button
+          type="button"
+          onClick={handleCreateScan}
+          disabled={createDisabled}
+          style={{ ...styles.primaryButton, ...(createDisabled ? styles.disabledButton : {}) }}
+        >
           {creating
             ? 'Iniciando...'
-            : selected.length > 0
+            : scope === 'selected'
               ? `Scan dos sites selecionados (${selected.length})`
-              : 'Scan completo do tenant'}
+              : 'Iniciar varredura'}
         </button>
       </section>
 
@@ -273,6 +379,7 @@ export default function ScansPage(): React.ReactElement {
                 <tr>
                   <th style={styles.th}>ID</th>
                   <th style={styles.th}>Tipo</th>
+                  <th style={styles.th}>Modo</th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Sites</th>
                   <th style={styles.th}>Arquivos</th>
@@ -286,13 +393,26 @@ export default function ScansPage(): React.ReactElement {
                   <tr key={scan.id} style={styles.tr}>
                     <td style={styles.td}><span style={styles.monospace} title={scan.id}>{scan.id.slice(0, 8)}…</span></td>
                     <td style={styles.td}>{scanType(scan)}</td>
+                    <td style={styles.td}>{scanMode(scan)}</td>
                     <td style={styles.td}><StatusBadge status={scan.status} /></td>
                     <td style={styles.td}>{scan.totalSites?.toLocaleString('pt-BR') ?? '—'}</td>
                     <td style={styles.td}>{scan.totalFiles?.toLocaleString('pt-BR') ?? '—'}</td>
                     <td style={styles.td}>{formatBytes(scan.totalBytes)}</td>
                     <td style={styles.td}>{new Date(scan.createdAt).toLocaleString('pt-BR')}</td>
                     <td style={styles.td}>
-                      {(scan.status === 'running' || scan.status === 'pending') && <Link to="/" style={styles.link}>Acompanhar</Link>}
+                      {(scan.status === 'running' || scan.status === 'pending') && (
+                        <div style={styles.rowActions}>
+                          <Link to="/" style={styles.link}>Acompanhar</Link>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelScan(scan.id)}
+                            disabled={cancellingScanId === scan.id}
+                            style={styles.cancelButton}
+                          >
+                            {cancellingScanId === scan.id ? 'Cancelando...' : 'Cancelar'}
+                          </button>
+                        </div>
+                      )}
                       {scan.status === 'completed' && <Link to={`/inventory/${scan.id}`} style={styles.link}>Inventário</Link>}
                       {scan.status === 'failed' && <Link to="/logs" style={styles.link}>Logs</Link>}
                     </td>
@@ -314,8 +434,12 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: { color: '#6b7280', margin: '0.35rem 0 0' },
   panel: { border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '2rem', background: '#fff' },
   panelTitle: { fontSize: '1.1rem', margin: '0 0 1rem' },
+  subsectionTitle: { fontSize: '0.95rem', margin: '1.25rem 0 0.75rem' },
   label: { display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: 6 },
   input: { width: '100%', boxSizing: 'border-box', padding: '0.7rem 0.8rem', border: '1px solid #d1d5db', borderRadius: 6 },
+  scanOptionsGrid: { display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(180px, 1fr)', gap: 12 },
+  allSitesGrid: { display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) 180px', gap: 12, marginTop: 12 },
+  modeHelp: { color: '#4b5563', fontSize: '0.8rem', padding: '0.65rem 0.75rem', marginTop: 8, background: '#f9fafb', borderRadius: 6 },
   searchGrid: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 180px auto', gap: 12, alignItems: 'end' },
   loadButton: { padding: '0.72rem 1rem', background: '#fff', color: '#2563eb', border: '1px solid #2563eb', borderRadius: 6, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
   helper: { minHeight: 20, color: '#6b7280', fontSize: '0.8rem', marginTop: 5 },
@@ -334,6 +458,7 @@ const styles: Record<string, React.CSSProperties> = {
   toggleRow: { display: 'flex', alignItems: 'flex-start', gap: 10, margin: '1rem 0', cursor: 'pointer' },
   toggleHelp: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
   primaryButton: { padding: '0.7rem 1.15rem', background: '#2563eb', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
+  disabledButton: { opacity: 0.55, cursor: 'not-allowed' },
   listTitle: { fontSize: '1.15rem', marginBottom: '0.75rem' },
   error: { color: '#b91c1c', margin: '0.5rem 0' },
   empty: { color: '#6b7280', padding: '1rem 0' },
@@ -344,6 +469,8 @@ const styles: Record<string, React.CSSProperties> = {
   td: { padding: '0.75rem', color: '#374151' },
   monospace: { fontFamily: 'monospace', fontSize: '0.82rem' },
   link: { color: '#2563eb', textDecoration: 'none', fontWeight: 600 },
+  rowActions: { display: 'flex', alignItems: 'center', gap: 10 },
+  cancelButton: { border: 0, padding: 0, background: 'transparent', color: '#b91c1c', cursor: 'pointer', fontWeight: 600 },
   badge: { display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: 12, fontSize: '0.78rem', fontWeight: 600 },
   toast: { position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '0.75rem 1rem', borderRadius: 6, border: '1px solid', fontWeight: 600 },
   toastSuccess: { background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' },
