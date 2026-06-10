@@ -47,9 +47,17 @@ export interface AppConfig {
   versionsAutoForce?:      boolean;
   useVersionWorker?:       boolean;
   nVersionWorkers?:        number;
+  graphExtraApps?:         GraphExtraApp[];
   brandingLoginTitle?:     string;
   brandingLoginSubtitle?:  string;
   [key: string]: unknown;
+}
+
+export interface GraphExtraApp {
+  label?:           string;
+  clientId:         string;
+  clientSecret?:    string;
+  hasClientSecret?: boolean;
 }
 
 export interface AppUser {
@@ -108,6 +116,68 @@ export interface OauthValidationPayload {
   oauthClientSecret?: string;
   oauthReaderGroups?: string;
   oauthAdminGroups?: string;
+}
+
+export interface AuthDiagnosis {
+  ok: boolean;
+  error?: string;
+  authority?: {
+    tenant?: string;
+    tokenUrl?: string | null;
+    openidUrl?: string | null;
+  };
+  config?: {
+    tenantId?: string;
+    clientId?: string;
+    hasSecret?: boolean;
+  };
+  openid?: {
+    ok: boolean;
+    issuer?: string;
+    error?: string;
+  } | null;
+  org?: {
+    id?: string;
+    displayName?: string;
+  } | null;
+  orgError?: string;
+  tenantFormatHint?: string | null;
+  steps?: string[];
+  aad?: {
+    aadsts?: string;
+    error_codes?: number[];
+    directory?: string;
+    appId?: string;
+    description?: string;
+    trace_id?: string;
+    correlation_id?: string;
+  } | null;
+}
+
+export interface WorkersHealth {
+  ok: boolean;
+  count: number;
+  queueDbMode?: string;
+  workers?: Array<{
+    id?: string;
+    worker_id?: string;
+    worker_type?: string;
+    updated_at?: string;
+  }>;
+  versionWorker?: {
+    enabled: boolean;
+    expected: number;
+    heartbeatCount: number;
+    localProcessCount: number;
+    extraAppsConfigured: number;
+    extraAppsInvalid: number;
+    configError?: string | null;
+    processes?: Array<{
+      appIndex: number;
+      pid?: number | null;
+      killed?: boolean;
+    }>;
+  };
 }
 
 // ─── Fetch interno ────────────────────────────────────────────────────────────
@@ -175,6 +245,16 @@ export async function validateOauthGroups(
   payload: OauthValidationPayload,
 ): Promise<OauthGroupValidationResult> {
   return sfetch<OauthGroupValidationResult>('POST', '/api/oauth/groups/validate', payload);
+}
+
+/** Diagnostica credenciais Graph, autoridade OAuth e descoberta OpenID. */
+export async function diagnoseAuth(): Promise<AuthDiagnosis> {
+  return sfetch<AuthDiagnosis>('POST', '/api/auth/diagnose', {});
+}
+
+/** Consulta heartbeats e processos esperados dos workers persistentes. */
+export async function getWorkersHealth(): Promise<WorkersHealth> {
+  return sfetch<WorkersHealth>('GET', '/api/health/workers');
 }
 
 /** Lista todos os usuários cadastrados (requer sessão de administrador). */

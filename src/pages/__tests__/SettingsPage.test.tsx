@@ -21,6 +21,15 @@ const baseConfig = {
   smtpUser: '',
   smtpPass: '',
   smtpFrom: '',
+  versionsAuto: 'top',
+  versionsAutoTopN: 25000,
+  versionsAutoMaxItems: 999999999,
+  versionsAutoConcurrency: 6,
+  versionsBatchSize: 10,
+  versionsAutoForce: false,
+  useVersionWorker: false,
+  nVersionWorkers: 1,
+  graphExtraApps: [],
 };
 
 function useSettingsHandlers(onSave?: (payload: Record<string, unknown>) => void): void {
@@ -111,5 +120,96 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Grupos com acesso de administrador')).toHaveValue(
       'group-admin|Administradores SharePoint',
     );
+  });
+
+  it('cria campos para apps extras e preserva secret já configurado', async () => {
+    let savedPayload: Record<string, unknown> | undefined;
+    server.use(
+      http.get('/api/session/check', () => HttpResponse.json({ ok: true, role: 'admin' })),
+      http.get('/api/config', () => HttpResponse.json({
+        ...baseConfig,
+        useVersionWorker: true,
+        nVersionWorkers: 2,
+        graphExtraApps: [{
+          label: 'worker-2',
+          clientId: 'client-worker-2',
+          clientSecret: '',
+          hasClientSecret: true,
+        }],
+      })),
+      http.post('/api/config', async ({ request }) => {
+        savedPayload = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /editar configurações/i }));
+    fireEvent.click(screen.getByRole('button', { name: /workers de versão/i }));
+
+    expect(screen.getByLabelText('Label do Worker 2')).toHaveValue('worker-2');
+    expect(screen.getByLabelText('Client ID do Worker 2')).toHaveValue('client-worker-2');
+    expect(screen.getByLabelText('Client Secret do Worker 2')).toHaveAttribute('placeholder', '••••••••');
+
+    fireEvent.change(screen.getByLabelText('Número de Version Workers'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Client ID do Worker 3'), { target: { value: 'client-worker-3' } });
+    fireEvent.change(screen.getByLabelText('Client Secret do Worker 3'), { target: { value: 'secret-worker-3' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /salvar configurações/i })[0]);
+
+    await waitFor(() => expect(savedPayload).toMatchObject({
+      useVersionWorker: true,
+      nVersionWorkers: 3,
+      graphExtraApps: [
+        expect.objectContaining({
+          label: 'worker-2',
+          clientId: 'client-worker-2',
+          clientSecret: '',
+          hasClientSecret: true,
+        }),
+        expect.objectContaining({
+          clientId: 'client-worker-3',
+          clientSecret: 'secret-worker-3',
+        }),
+      ],
+    }));
+  });
+
+  it('exibe diagnóstico Graph e heartbeats dos workers', async () => {
+    useSettingsHandlers();
+    server.use(
+      http.post('/api/auth/diagnose', () =>
+        HttpResponse.json({
+          ok: true,
+          authority: { tokenUrl: 'https://login.microsoftonline.com/tenant/token' },
+          openid: { ok: true, issuer: 'https://login.microsoftonline.com/tenant/v2.0' },
+          org: { id: 'org-1', displayName: 'ALLOS' },
+        }),
+      ),
+      http.get('/api/health/workers', () =>
+        HttpResponse.json({
+          ok: true,
+          count: 2,
+          versionWorker: {
+            enabled: true,
+            expected: 2,
+            heartbeatCount: 2,
+            localProcessCount: 2,
+            extraAppsConfigured: 1,
+            extraAppsInvalid: 0,
+            configError: null,
+          },
+        }),
+      ),
+    );
+
+    render(<SettingsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /workers de versão/i }));
+    fireEvent.click(screen.getByRole('button', { name: /diagnosticar conexão graph/i }));
+    fireEvent.click(screen.getByRole('button', { name: /verificar version workers/i }));
+
+    expect(await screen.findByText('Conexão Graph válida')).toBeInTheDocument();
+    expect(await screen.findByText(/Version Workers: 2\/2 heartbeat/i)).toBeInTheDocument();
+    expect(screen.getByText(/Enterprise Apps extras válidas: 1/i)).toBeInTheDocument();
   });
 });

@@ -1,6 +1,11 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { searchOauthGroups, validateOauthGroups } from '../settings.api';
+import {
+  diagnoseAuth,
+  getWorkersHealth,
+  searchOauthGroups,
+  validateOauthGroups,
+} from '../settings.api';
 import { server } from '../../test/server';
 
 describe('settings.api', () => {
@@ -54,6 +59,46 @@ describe('settings.api', () => {
     })).resolves.toMatchObject({
       ok: true,
       summary: { total: 2, valid: 2, invalid: 0 },
+    });
+  });
+
+  it('consulta diagnóstico Graph e saúde dos version workers', async () => {
+    server.use(
+      http.post('/api/auth/diagnose', () =>
+        HttpResponse.json({
+          ok: true,
+          authority: { tenant: 'tenant-main', tokenUrl: 'https://login/token' },
+          openid: { ok: true, issuer: 'https://login/issuer' },
+          org: { id: 'org-1', displayName: 'ALLOS' },
+        }),
+      ),
+      http.get('/api/health/workers', () =>
+        HttpResponse.json({
+          ok: true,
+          count: 2,
+          versionWorker: {
+            enabled: true,
+            expected: 2,
+            heartbeatCount: 2,
+            localProcessCount: 2,
+            extraAppsConfigured: 1,
+            extraAppsInvalid: 0,
+            configError: null,
+          },
+        }),
+      ),
+    );
+
+    await expect(diagnoseAuth()).resolves.toMatchObject({
+      ok: true,
+      org: { displayName: 'ALLOS' },
+    });
+    await expect(getWorkersHealth()).resolves.toMatchObject({
+      versionWorker: {
+        expected: 2,
+        heartbeatCount: 2,
+        extraAppsConfigured: 1,
+      },
     });
   });
 });
