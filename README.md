@@ -40,11 +40,11 @@ Browser → Nginx :3000
 
 | Camada | Tecnologia |
 |---|---|
-| Framework | React 18 |
-| Linguagem | TypeScript 5 |
+| Framework | React 19 |
+| Linguagem | TypeScript 6 |
 | Build | Vite 8 (bundler Rolldown) |
-| Roteamento | React Router v6 |
-| Runtime plugin | `@vitejs/plugin-react-oxc` (OXC, sem Babel) |
+| Roteamento | React Router v7 |
+| Runtime plugin | `@vitejs/plugin-react` |
 | Servidor (prod) | Nginx 1.27 Alpine |
 | CI/CD | GitHub Actions → Docker Hub |
 | Scan de segurança | Trivy (filesystem + imagem Docker) |
@@ -55,7 +55,7 @@ Browser → Nginx :3000
 
 ### Pré-requisitos
 
-- Node.js ≥ 22
+- Node.js ≥ 22.13
 - Docker + Docker Compose (para rodar com o backend)
 
 ### Desenvolvimento local
@@ -64,7 +64,7 @@ Browser → Nginx :3000
 git clone git@github.com:romulomteixeira/Sharepoint-Files-Tools-Frontend.git
 cd Sharepoint-Files-Tools-Frontend
 
-npm install --legacy-peer-deps
+npm ci
 npm run dev        # http://localhost:3000
 ```
 
@@ -128,7 +128,7 @@ A autenticação é validada pelo **backend**, mas toda a experiência de login 
 
 ## Testes automatizados
 
-Antes de executar os checks, instale também as dependências de desenvolvimento com `npm install --legacy-peer-deps`.
+Antes de executar os checks, instale o grafo validado no `package-lock.json` com `npm ci`.
 
 A suíte mínima está dividida em:
 

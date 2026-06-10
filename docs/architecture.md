@@ -9,7 +9,7 @@ src/
 ├── pages/        ← Componentes de página (um por rota)
 ├── components/   ← Componentes compartilhados (Layout)
 ├── types/        ← Interfaces TypeScript centralizadas
-├── App.tsx       ← Definição de rotas (React Router v6)
+├── App.tsx       ← Definição de rotas (React Router v7)
 ├── main.tsx      ← Entry point do Vite
 └── vite-env.d.ts ← Tipos do Vite (import.meta.env)
 ```
@@ -18,7 +18,7 @@ src/
 
 ## Roteamento
 
-Definido em `App.tsx` usando React Router v6 com layout aninhado:
+Definido em `App.tsx` usando React Router v7 com layout aninhado:
 
 ```
 Layout (sidebar + navegação)
@@ -144,7 +144,7 @@ Todas as interfaces são definidas em um único arquivo para facilitar manutenç
 O Vite 8 substitui o Rollup pelo **Rolldown** (bundler em Rust) internamente. Impacto prático:
 
 - `manualChunks` deve ser **função**, não objeto (quebra em Rolldown)
-- Plugin React usa `@vitejs/plugin-react-oxc` (OXC) em vez de Babel — build mais rápido
+- Plugin React oficial (`@vitejs/plugin-react`) com suporte declarado ao Vite 8
 
 ### Chunks gerados
 
@@ -179,6 +179,7 @@ Headers de segurança incluídos: `X-Frame-Options: DENY`, `X-Content-Type-Optio
 |---|---|
 | Sem Redux / Zustand | Estado local (`useState`) é suficiente para a complexidade atual |
 | Fetch nativo (sem axios) | Reduz dependências; timeout e abort implementados com `AbortController` |
-| ESLint v8 + `@typescript-eslint` | Compatibilidade com o formato `--ext` usado no script de lint |
-| `--legacy-peer-deps` | `@vitejs/plugin-react-oxc` ainda não atualiza todos os peer deps do ecosistema |
+| ESLint flat config + `typescript-eslint` | Configuração suportada pelas versões atuais do ESLint, TypeScript e React Hooks |
+| `npm ci` + lockfile versionado | Instalações reproduzíveis no desenvolvimento, CI e build Docker |
+| `@vitejs/plugin-react` | Plugin oficial com suporte declarado ao Vite 8 |
 | Inline styles (sem CSS modules) | Simplicidade para o escopo atual; facilita migração futura para qualquer lib de UI |
