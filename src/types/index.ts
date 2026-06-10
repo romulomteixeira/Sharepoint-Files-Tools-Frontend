@@ -104,7 +104,6 @@ export type JobType =
   | 'retention_execute'
   | 'retention_versions'
   | 'retention_files'
-  | 'retention_sites'
   | 'recycle_execute'
   | 'recycle_bin';
 

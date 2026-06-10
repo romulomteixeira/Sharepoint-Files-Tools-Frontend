@@ -27,7 +27,7 @@
 - `src/api/scans.api.ts` — `createScan`, `listScans`, `getScanStatus`
 - `src/api/inventory.api.ts` — `getInventorySummary`, `getInventorySites`, `getInventoryDrives`, `getInventoryFiles`, `getTopFiles`
 - `src/api/jobs.api.ts` — `getJobStatus`
-- `src/api/reports.api.ts` — `exportInventory`, `getExportJobStatus`, `getDownloadUrl`, `requestPurgeConfirmToken`
+- `src/api/reports.api.ts` — `exportInventory`, `getExportJobStatus`, `getDownloadUrl`
 - `src/hooks/useApi.ts` — hook genérico `{ data, loading, error, refetch }`
 - `src/hooks/useJobStream.ts` — hook SSE via `EventSource` para progresso em tempo real
 - `src/types/index.ts` — interfaces TypeScript: `Scan`, `Job`, `FileItem`, `InventorySummary`, `ExportJob`, etc.
@@ -854,3 +854,17 @@ equivalente no React:
 - Modo Top/Todos, limites e force para versões no último scan finalizado
 - Exibição do estado das últimas execuções
 - Testes de contrato, interface e homologação visual com persistência
+
+### ✅ Auditoria de contratos — backend local do workspace (10/06/2026)
+
+**Fonte de verdade:** `Sharepoint-Files-Tools-Workspace/Sharepoint-Files-Tools`.
+
+- Configurações SMTP, OAuth/OpenID Connect, grupos, versionamento, workers, diagnósticos e scheduler permanecem compatíveis.
+- Listagem explícita, seleção, paginação, escopo, modos, limites e cancelamento de scans permanecem compatíveis.
+- Expurgo produtivo homologado suporta somente `retention_versions`, `retention_files` e `recycle_bin`.
+- A antiga Sprint 21 de exclusão de sites foi marcada como obsoleta: o backend local não possui
+  `POST /api/sites/simulate`, `POST /api/sites/execute-job` nem a operação `retention_sites`.
+- A aba de exclusão de sites e seus contratos foram removidos do React. A seleção de sites para
+  iniciar scans parciais continua disponível no menu Sites.
+- O helper duplicado de confirmação com body aninhado foi removido; o fluxo único usa body flat
+  `{ operation, scanId, ...params }`, conforme o backend local.

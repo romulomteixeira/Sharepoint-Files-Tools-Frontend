@@ -1,5 +1,5 @@
 /**
- * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla (Sprint 20/21)
+ * purge.api.ts — Endpoints de expurgo seguro com confirmação dupla
  *
  * Fluxo obrigatório para qualquer operação destrutiva:
  *   1. POST /api/purge/confirm          → { confirmToken, expiresAt, requestHash }
@@ -9,7 +9,6 @@
  *   - retention_versions → /api/retention/execute-job      (retenção de versões)
  *   - retention_files    → /api/file-retention/execute-job (expurgo de arquivos)
  *   - recycle_bin        → /api/recycle-bin/execute-job    (limpeza de lixeira)
- *   - retention_sites    → /api/sites/execute-job          (exclusão de sites)
  *
  * Formato do body para /api/purge/confirm:
  *   FLAT: { operation, scanId, ...outrosParams }
@@ -25,8 +24,7 @@ import type { JobStatusDetail } from '../types';
 export type PurgeOperation =
   | 'retention_versions'
   | 'retention_files'
-  | 'recycle_bin'
-  | 'retention_sites';
+  | 'recycle_bin';
 
 // ─── Tipos compartilhados ─────────────────────────────────────────────────────
 
@@ -214,51 +212,6 @@ export async function exportRecycleBinBlob(
     { ...params, format },
     `lixeira_sharepoint_${params.scanId}.${format}`,
   );
-}
-
-// ─── Exclusão de sites ────────────────────────────────────────────────────────
-
-export interface SiteTarget {
-  siteId:       string;
-  siteName?:    string;
-  siteUrl?:     string;
-  totalBytes?:  number;
-  filesCount?:  number;
-  lastModified?: string;
-}
-
-export interface SimulateSitesResult {
-  scanId:   string;
-  search:   string;
-  preview:  SiteTarget[];
-  result: {
-    sites:           number;
-    totalBytes:      number;
-    totalBytesHuman: string;
-  };
-}
-
-/**
- * Busca sites por slug/nome e retorna lista com métricas para seleção.
- * Body: { scanId, search } — search é string de filtro (pode ser vazio para listar todos).
- */
-export async function simulateSiteDeletion(
-  scanId: string,
-  search: string,
-): Promise<SimulateSitesResult> {
-  return post<SimulateSitesResult>('/api/sites/simulate', { scanId, search });
-}
-
-/**
- * Executa exclusão dos sites selecionados via job assíncrono.
- * Body: { scanId, siteIds, confirmToken }
- */
-export async function executeSiteDeleteJob(
-  scanId:       string,
-  siteIds:      string[],
-  confirmToken: string,
-): Promise<PurgeJobResult> {
-  return post<PurgeJobResult>('/api/sites/execute-job', { scanId, siteIds, confirmToken });
 }
 
 // ─── Status de job ────────────────────────────────────────────────────────────
