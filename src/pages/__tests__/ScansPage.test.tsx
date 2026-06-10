@@ -27,6 +27,9 @@ describe("ScansPage", () => {
 
     render(<MemoryRouter><ScansPage /></MemoryRouter>);
 
+    fireEvent.change(screen.getByLabelText(/escopo da varredura/i), {
+      target: { value: "selected" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /carregar sites/i }));
     const checkbox = await screen.findByRole(
       "checkbox",
@@ -40,10 +43,66 @@ describe("ScansPage", () => {
       expect(payload).toEqual({
         allSites: false,
         sites: ["site-1"],
-        options: { enableVersioning: false },
+        options: { enableVersioning: false, quickMode: null },
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(/scan-123/i);
+  });
+
+  it("configura escopo completo, modo rápido e limite da varredura", async () => {
+    let payload: unknown;
+    server.use(
+      http.get("/api/scans/list", () => HttpResponse.json({ items: [] })),
+      http.post("/api/scans", async ({ request }) => {
+        payload = await request.json();
+        return HttpResponse.json({ scanId: "scan-fast" });
+      }),
+    );
+
+    render(<MemoryRouter><ScansPage /></MemoryRouter>);
+
+    fireEvent.change(screen.getByLabelText(/modo/i), { target: { value: "fast" } });
+    fireEvent.change(screen.getByLabelText(/busca usada na varredura/i), { target: { value: "marketing" } });
+    fireEvent.change(screen.getByLabelText(/limite de sites/i), { target: { value: "8500" } });
+    fireEvent.click(screen.getByRole("button", { name: /iniciar varredura/i }));
+
+    await waitFor(() =>
+      expect(payload).toEqual({
+        allSites: true,
+        siteSearch: "marketing",
+        maxSites: 8500,
+        options: {
+          enableVersioning: false,
+          quickMode: { maxSites: 10, maxDrivesPerSite: 5, maxItemsPerDrive: 2000 },
+        },
+      }),
+    );
+  });
+
+  it("cancela um scan ativo usando o scanId da listagem", async () => {
+    let cancelledScanId = "";
+    server.use(
+      http.get("/api/scans/list", () =>
+        HttpResponse.json({
+          items: [{
+            scanId: "scan-running-123",
+            status: "RUNNING",
+            createdAt: "2026-06-10T10:00:00Z",
+            request: { allSites: true, options: { quickMode: null } },
+          }],
+        }),
+      ),
+      http.post("/api/scans/:scanId/cancel", ({ params }) => {
+        cancelledScanId = String(params.scanId);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    render(<MemoryRouter><ScansPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(cancelledScanId).toBe("scan-running-123"));
+    expect(await screen.findByRole("status")).toHaveTextContent(/cancelamento solicitado/i);
   });
 
   it("só lista sites sob demanda e envia busca e quantidade informadas", async () => {
@@ -86,6 +145,9 @@ describe("ScansPage", () => {
 
     render(<MemoryRouter><ScansPage /></MemoryRouter>);
 
+    fireEvent.change(screen.getByLabelText(/escopo da varredura/i), {
+      target: { value: "selected" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /carregar sites/i }));
     fireEvent.change(await screen.findByLabelText(/itens\/página/i), {
       target: { value: "10" },

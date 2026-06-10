@@ -836,6 +836,12 @@ equivalente no React:
 - Scan parcial baseado nos sites selecionados
 - Testes de interface e homologação visual com seleção entre páginas
 
-### 📋 Próximos blocos
+### ✅ Bloco 4 — escopo, modo, limites e cancelamento de scans
 
-- Bloco 4 — escopo, modo, limites e cancelamento de scans
+- Escopo explícito entre todos os sites e sites selecionados
+- Busca e limite de até 20.000 sites para varreduras de tenant
+- Modos completo, rápido e estimativa com os presets homologados
+- Explicação dos limites de sites, bibliotecas e itens de cada modo
+- Identificação do modo utilizado na lista de scans
+- Cancelamento de scans ativos pelo `scanId` retornado na listagem
+- Testes de contrato e interface para criação e cancelamento

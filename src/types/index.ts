@@ -44,8 +44,15 @@ export interface Scan {
   request?: {
     allSites?: boolean;
     sites?: string[];
+    siteSearch?: string;
+    maxSites?: number;
     options?: {
       enableVersioning?: boolean;
+      quickMode?: {
+        maxSites: number;
+        maxDrivesPerSite: number;
+        maxItemsPerDrive: number;
+      } | null;
     };
   };
 }
