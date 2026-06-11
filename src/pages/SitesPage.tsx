@@ -225,6 +225,15 @@ function DrilldownPanel({
 
       {drillState && (
         <>
+          {/* Bibliotecas incluídas */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            {drillState.data.libraries.map(lib => (
+              <h3 key={lib.driveId} style={{ margin: 0, fontSize: 13, fontWeight: 700, background: '#eff6ff', color: '#2b6cb0', borderRadius: 4, padding: '4px 10px', border: '1px solid #bee3f8' }}>
+                {lib.driveName}
+              </h3>
+            ))}
+          </div>
+
           {/* Gráfico de extensões */}
           <ExtensionChart files={allFiles} />
 
@@ -281,7 +290,7 @@ function DrilldownPanel({
                 <thead>
                   <tr>
                     <th style={styles.th}>Arquivo</th>
-                    <th style={styles.th}>Biblioteca / Caminho</th>
+                    <th style={styles.th}>Caminho</th>
                     <th style={styles.th}>Ext.</th>
                     <th style={styles.thRight}>Tamanho</th>
                     <th style={styles.thRight}>Versões</th>
@@ -297,8 +306,8 @@ function DrilldownPanel({
                           ? <a href={file.webUrl} target="_blank" rel="noreferrer" style={styles.link}>{file.name}</a>
                           : file.name}
                       </td>
-                      <td style={{ ...styles.td, ...styles.muted, fontSize: 11 }}>
-                        {[file.driveName, file.fullPath].filter(Boolean).join(' / ') || '—'}
+                      <td style={{ ...styles.td, fontSize: 11, color: '#718096' }}>
+                        {file.fullPath || '—'}
                       </td>
                       <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: 11 }}>{file.extension || '—'}</td>
                       <td style={styles.tdRight}>{formatBytes(file.sizeBytes)}</td>
