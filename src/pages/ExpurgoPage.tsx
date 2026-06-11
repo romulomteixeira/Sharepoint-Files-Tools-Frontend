@@ -342,11 +342,15 @@ function StepBar({ step }: { step: Step }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) {
-  const [step,        setStep]        = useState<Step>('config');
-  const [filterExt,   setFilterExt]   = useState('');
-  const [filterAge,   setFilterAge]   = useState('');
-  const [filterSize,  setFilterSize]  = useState('');
-  const [filterSite,  setFilterSite]  = useState('');
+  const [step,         setStep]         = useState<Step>('config');
+  const [filterExt,    setFilterExt]    = useState('');
+  const [filterAge,    setFilterAge]    = useState('');
+  const [filterSize,   setFilterSize]   = useState('');
+  const [filterSite,   setFilterSite]   = useState('');
+  const [keepVersions, setKeepVersions] = useState('5');
+  const [dateMode,     setDateMode]     = useState<'age' | 'range'>('age');
+  const [fromDate,     setFromDate]     = useState('');
+  const [toDate,       setToDate]       = useState('');
 
   const [previewFiles,   setPreviewFiles]   = useState<VersionRetentionPreviewItem[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -364,18 +368,24 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
   function buildRule(): VersionRetentionRule {
     return {
       scanId,
-      extensions:    filterExt   ? [filterExt]          : undefined,
-      olderThanDays: filterAge   ? Number(filterAge)    : undefined,
-      largerThanMb:  filterSize  ? Number(filterSize)   : undefined,
-      siteId:        filterSite  || undefined,
+      extensions:    filterExt                               ? [filterExt]       : undefined,
+      olderThanDays: dateMode === 'age' && filterAge         ? Number(filterAge) : undefined,
+      largerThanMb:  filterSize                              ? Number(filterSize) : undefined,
+      siteId:        filterSite                             || undefined,
+      keepVersions:  keepVersions                            ? Number(keepVersions) : undefined,
+      fromDate:      dateMode === 'range' && fromDate        ? fromDate : undefined,
+      toDate:        dateMode === 'range' && toDate          ? toDate   : undefined,
     };
   }
 
   function describeRule(): string {
     const parts: string[] = [];
     if (filterExt)  parts.push(`ext: ${filterExt}`);
-    if (filterAge)  parts.push(`não modificado há ${filterAge} dias`);
-    if (filterSize) parts.push(`> ${filterSize} MB`);
+    if (keepVersions) parts.push(`manter ${keepVersions} versão(ões)`);
+    if (dateMode === 'age' && filterAge)   parts.push(`não modificado há ${filterAge} dias`);
+    if (dateMode === 'range' && fromDate)  parts.push(`de ${fromDate}`);
+    if (dateMode === 'range' && toDate)    parts.push(`até ${toDate}`);
+    if (filterSize)  parts.push(`> ${filterSize} MB`);
     if (filterSite) {
       const site = sites.find(s => s.siteId === filterSite);
       parts.push(`site: ${site?.siteName || filterSite.slice(0, 12)}…`);
@@ -383,7 +393,31 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
     return parts.length ? parts.join(' · ') : 'sem filtros';
   }
 
-  const hasRule = !!(filterExt || filterAge || filterSize || filterSite);
+  const hasRule = !!(filterExt || filterAge || filterSize || filterSite || fromDate || toDate || keepVersions);
+
+  function exportPreviewCsv() {
+    if (!previewFiles.length) return;
+    const header = 'Nome,Site,Extensão,Versões,Versões a remover,Bytes a liberar,Modificado,URL\n';
+    const rows = previewFiles.map(f => [
+      `"${(f.name || '').replace(/"/g, '""')}"`,
+      `"${(f.siteName || f.siteId || '').replace(/"/g, '""')}"`,
+      f.extension || '',
+      f.versionCount ?? '',
+      f.purgeCount ?? '',
+      f.purgeBytes ?? '',
+      f.modified ? new Date(f.modified).toLocaleDateString('pt-BR') : '',
+      `"${(f.webUrl || '').replace(/"/g, '""')}"`,
+    ].join(',')).join('\n');
+    const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `expurgo_versoes_preview_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   async function runPreview() {
     if (!scanId) return;
@@ -463,10 +497,16 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
             </select>
           </div>
           <div style={s.fieldGroup}>
-            <label style={s.fieldLabel}>Idade do arquivo</label>
-            <select value={filterAge} onChange={e => setFilterAge(e.target.value)} style={s.select}>
-              {AGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <label style={s.fieldLabel}>Versões a manter</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={keepVersions}
+              onChange={e => setKeepVersions(e.target.value)}
+              style={{ ...s.select, width: '100%', boxSizing: 'border-box' as const }}
+              placeholder="5"
+            />
           </div>
           <div style={s.fieldGroup}>
             <label style={s.fieldLabel}>Tamanho mínimo</label>
@@ -474,6 +514,55 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
               {SIZE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+        </div>
+
+        {/* Filtro de data */}
+        <div style={{ padding: '0 14px 10px' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => setDateMode('age')}
+              style={{ ...s.btn, ...(dateMode === 'age' ? s.btnAccent : s.btnOutline), fontSize: 11, padding: '4px 10px' }}
+            >
+              Por antiguidade
+            </button>
+            <button
+              type="button"
+              onClick={() => setDateMode('range')}
+              style={{ ...s.btn, ...(dateMode === 'range' ? s.btnAccent : s.btnOutline), fontSize: 11, padding: '4px 10px' }}
+            >
+              Por intervalo de datas
+            </button>
+          </div>
+          {dateMode === 'age' ? (
+            <div style={s.fieldGroup}>
+              <label style={s.fieldLabel}>Idade do arquivo (data de modificação)</label>
+              <select value={filterAge} onChange={e => setFilterAge(e.target.value)} style={s.select}>
+                {AGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Data inicial (modificado a partir de)</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={e => setFromDate(e.target.value)}
+                  style={{ ...s.select, width: '100%', boxSizing: 'border-box' as const }}
+                />
+              </div>
+              <div style={s.fieldGroup}>
+                <label style={s.fieldLabel}>Data final (modificado até)</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={e => setToDate(e.target.value)}
+                  style={{ ...s.select, width: '100%', boxSizing: 'border-box' as const }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {hasRule && (
@@ -504,6 +593,15 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
           <div style={s.panelHeader}>
             <span style={s.panelTitle}>Preview do Expurgo</span>
             {totalMatches > 0 && <span style={{ ...s.countBadge, background: C.bad }}>{fmtNum(totalMatches)} arquivo{totalMatches !== 1 ? 's' : ''}</span>}
+            {previewFiles.length > 0 && (
+              <button
+                style={{ ...s.btn, ...s.btnOutline, marginLeft: 'auto', fontSize: 11 }}
+                onClick={exportPreviewCsv}
+                title="Exportar amostra como CSV"
+              >
+                ↓ Exportar CSV
+              </button>
+            )}
           </div>
           {previewLoading && <div style={s.loadingMsg}><span style={s.spinner} /> Calculando impacto…</div>}
           {previewError  && <div style={s.errorMsg}>⚠ {previewError}</div>}
@@ -525,7 +623,9 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
                     <th style={s.th}>Nome</th>
                     <th style={s.th}>Site</th>
                     <th style={s.th}>Ext</th>
-                    <th style={{ ...s.th, textAlign: 'right' as const }}>Tamanho</th>
+                    <th style={{ ...s.th, textAlign: 'right' as const }}>Versões</th>
+                    <th style={{ ...s.th, textAlign: 'right' as const }}>A remover</th>
+                    <th style={{ ...s.th, textAlign: 'right' as const }}>Liberar</th>
                     <th style={s.th}>Modificado</th>
                   </tr></thead>
                   <tbody>
@@ -534,6 +634,8 @@ function VersionsTab({ scanId, sites, summary, onJobActivity }: TabSharedProps) 
                         <td style={s.td}><div style={s.fileName}>{f.webUrl ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a> : f.name}</div></td>
                         <td style={{ ...s.td, ...s.cellMuted }}><div style={s.cellEllipsis}>{f.siteName || f.siteId}</div></td>
                         <td style={s.td}><span style={s.extBadge}>{f.extension || '—'}</span></td>
+                        <td style={{ ...s.td, textAlign: 'right' }}>{fmtNum(f.versionCount)}</td>
+                        <td style={{ ...s.td, textAlign: 'right', color: C.bad }}>{fmtNum(f.purgeCount)}</td>
                         <td style={{ ...s.td, textAlign: 'right' }}>{fmtBytes(f.purgeBytes)}</td>
                         <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(f.modified)}</td>
                       </tr>
@@ -1401,6 +1503,7 @@ const s: Record<string, React.CSSProperties> = {
   btnAccent:    { background: C.accent, color: '#fff', borderColor: C.accent },
   btnDanger:    { background: DANGER,   color: '#fff', borderColor: DANGER   },
   btnSecondary: { background: C.panel,  color: C.text, borderColor: C.border },
+  btnOutline:   { background: C.panel,  color: C.accent, borderColor: C.accent },
 };
 
 // ─── Modal styles ─────────────────────────────────────────────────────────────

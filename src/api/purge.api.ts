@@ -53,6 +53,10 @@ export interface VersionRetentionRule {
   largerThanMb?:   number;
   siteId?:         string;
   driveId?:        string;
+  keepVersions?:   number;
+  fromDate?:       string | null;
+  toDate?:         string | null;
+  previewLimit?:   number;
 }
 
 /** Alias de compatibilidade */
