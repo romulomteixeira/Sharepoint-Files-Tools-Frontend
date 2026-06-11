@@ -5,6 +5,7 @@
  *   /login                 → LoginPage       (pública)
  *   /                      → DashboardPage   (protegida)
  *   /scans                 → ScansPage       (protegida)
+ *   /sites                 → SitesPage       (último inventário por site)
  *   /jobs/:jobId           → JobStatusPage   (protegida, SSE de progresso)
  *   /inventory             → InventoryPage   (seletor de scans)
  *   /inventory/:scanId     → InventoryPage   (inventário de um scan)
@@ -28,6 +29,7 @@ import Layout        from './components/Layout';
 import LoginPage     from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ScansPage     from './pages/ScansPage';
+import SitesPage     from './pages/SitesPage';
 import JobStatusPage from './pages/JobStatusPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage             from './pages/ReportsPage';
@@ -87,6 +89,7 @@ export default function App(): React.ReactElement {
         >
           <Route index element={<DashboardPage />} />
           <Route path="scans" element={<ScansPage />} />
+          <Route path="sites" element={<SitesPage />} />
           <Route path="jobs/:jobId" element={<JobStatusPage />} />
           <Route path="inventory"          element={<InventoryPage />} />
           <Route path="inventory/:scanId" element={<InventoryPage />} />

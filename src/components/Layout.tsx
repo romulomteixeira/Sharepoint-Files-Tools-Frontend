@@ -42,7 +42,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     section: 'Operação',
     items: [
-      { icon: 'ST', title: 'Sites',                   sub: 'Origem e execução do scan',       to: '/scans' },
+      { icon: 'SC', title: 'Realizar Scans',          sub: 'Configurar e executar varreduras', to: '/scans' },
+      { icon: 'ST', title: 'Sites',                   sub: 'Último inventário por site',        to: '/sites' },
       { icon: 'IV', title: 'Inventário',              sub: 'Arquivos, filtros e base',        to: '/inventory' },
       { icon: 'TP', title: 'Top Arquivos',            sub: 'Maiores e mais versionados',      to: '/top-files' },
       { icon: 'ON', title: 'Monitor Oneração',        sub: 'Crescimento e impacto',           to: '/oneration-monitor' },

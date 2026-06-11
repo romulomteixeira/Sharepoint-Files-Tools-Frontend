@@ -894,3 +894,15 @@ equivalente no React:
 - [x] Remover a legenda fixa `Base (1024)` e usar o valor recebido pelo contrato
 - [x] Homologação automatizada e visual
 - [ ] PR frontend aprovado e mesclado
+
+### Bloco 3 — Realizar Scans e nova aba Sites
+
+- [x] Renomear o menu atual para `Realizar Scans`, preservando `/scans`
+- [x] Criar `/sites` com inventário latest-wins por `siteId`
+- [x] Exibir última varredura e scan de origem
+- [x] Implementar busca e paginação 10/30/50/100
+- [x] Preservar seleção de sites entre páginas
+- [x] Permitir drill-down sob demanda entre 1 e 10 sites
+- [x] Exibir bibliotecas, arquivos, tamanho, versões, espaço das versões e total
+- [x] Homologação automatizada e visual
+- [ ] PR frontend aprovado e mesclado

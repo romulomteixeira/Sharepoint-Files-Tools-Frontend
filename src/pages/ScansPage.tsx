@@ -174,7 +174,7 @@ export default function ScansPage(): React.ReactElement {
 
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>Scans</h1>
+          <h1 style={styles.title}>Realizar Scans</h1>
           <p style={styles.subtitle}>Inicie um inventário completo ou escolha sites específicos.</p>
         </div>
       </div>
