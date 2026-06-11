@@ -944,4 +944,14 @@ equivalente no React:
 - [x] Exibir aviso de timeline de versões incompleta
 - [x] Homologação automatizada e visual
 - [x] PR backend aprovado e mesclado — #77
-- [ ] PR frontend aprovado e mesclado
+- [x] PR frontend aprovado e mesclado — #39
+
+### Resultado consolidado
+
+- [x] Bloco 1 — frontend #34
+- [x] Bloco 2 — backend #74 e frontend #35
+- [x] Bloco 3 — backend #75 e frontend #36
+- [x] Bloco 4 — backend #76 e frontend #37
+- [x] Bloco 5 — frontend #38
+- [x] Bloco 6 — backend #77 e frontend #39
+- [x] Nenhuma operação destrutiva executada durante a homologação
