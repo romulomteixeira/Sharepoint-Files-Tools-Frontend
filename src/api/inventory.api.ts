@@ -148,7 +148,6 @@ export async function getTopFiles(
   );
   return response.items;
 }
-
 /** Top N consolidado, deduplicado pelo backend usando o scan concluído mais recente. */
 export async function getLatestTopFiles(
   params: { limit?: number; metric?: TopFilesMetric } = {},
@@ -158,12 +157,4 @@ export async function getLatestTopFiles(
     { limit: params.limit, metric: params.metric ?? 'size' },
   );
   return response.items;
-}
-
-/** Versões agrupadas por período (dia / semana / mês). */
-export async function getVersionedByPeriod(
-  scanId: string,
-  params?: { unit?: 'day' | 'week' | 'month' },
-): Promise<import('../types').VersionedPeriodData> {
-  return get(`/api/inventory/${scanId}/versioned-by-period`, params);
 }

@@ -35,6 +35,29 @@ export interface TopCostResponse {
   items: TopCostItem[];
 }
 
+export interface TopVersionedItem extends TopCostItem {
+  periodOnly?: boolean;
+  periodVersionCount?: number;
+  periodVersionsBytes?: number;
+  totalPeriodBytes?: number;
+  totalVersionCount?: number;
+  totalVersionsBytes?: number;
+  allVersionsTotalBytes?: number;
+}
+
+export interface TopVersionedResponse {
+  window: AnalyticsWindow;
+  field: AnalyticsDateField;
+  anchorIso: string;
+  startIso: string | null;
+  endIso: string | null;
+  timelineAvailable: boolean;
+  filesWithTimeline: number;
+  totalVersionedFiles: number;
+  missingTimelineFiles: number;
+  items: TopVersionedItem[];
+}
+
 export async function getTopCost(
   scanId: string,
   params: {
@@ -46,5 +69,19 @@ export async function getTopCost(
   return get<TopCostResponse>(`/api/analytics/topcost/${encodeURIComponent(scanId)}`, {
     ...params,
     includeVersions: true,
+  });
+}
+
+export async function getTopVersioned(
+  scanId: string,
+  params: {
+    window: AnalyticsWindow;
+    field: AnalyticsDateField;
+    limit: 80 | 100 | 200 | 300;
+  },
+): Promise<TopVersionedResponse> {
+  return get<TopVersionedResponse>(`/api/analytics/topversioned/${encodeURIComponent(scanId)}`, {
+    ...params,
+    minVersionCount: 1,
   });
 }
