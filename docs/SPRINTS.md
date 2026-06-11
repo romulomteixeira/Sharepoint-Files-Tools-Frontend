@@ -882,4 +882,15 @@ equivalente no React:
 - [x] Consumir `result` e `preview` da simulação server-side de versões
 - [x] Remover a consulta paralela limitada a 500 arquivos
 - [x] Homologação automatizada e visual
-- [ ] PR aprovado e mesclado
+- [x] PR aprovado e mesclado — #34
+
+### Bloco 2 — Licenças e espaço
+
+- [x] Backend usa base contratual decimal de 1000 GB
+- [x] Preservar 10 GB por licença elegível e 1:1 para add-on de storage
+- [x] Distinguir `ENTERPRISEPACK` (Office 365 E3) de `SPE_E3` (Microsoft 365 E3)
+- [x] Manter fallback para o String ID quando não houver Product Name conhecido
+- [x] Exibir Product Name e String ID em colunas distintas
+- [x] Remover a legenda fixa `Base (1024)` e usar o valor recebido pelo contrato
+- [x] Homologação automatizada e visual
+- [ ] PR frontend aprovado e mesclado

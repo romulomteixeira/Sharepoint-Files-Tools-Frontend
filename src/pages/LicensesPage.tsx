@@ -370,7 +370,7 @@ export default function LicensesPage(): React.ReactElement {
         {lic?.totals && (
           <div style={ls.totalsRow}>
             <span style={ls.totalChip}>
-              Base (1024): <strong>{lic.totals.baseCapacityGb.toLocaleString('pt-PT')} GB</strong>
+              Base contratual: <strong>{lic.totals.baseCapacityGb.toLocaleString('pt-PT')} GB</strong>
             </span>
             <span style={ls.totalChip}>
               Licenças: <strong>{lic.totals.licensesCapacityGb.toLocaleString('pt-PT')} GB</strong>
@@ -386,7 +386,8 @@ export default function LicensesPage(): React.ReactElement {
             <table style={ls.table}>
               <thead>
                 <tr>
-                  <th style={ls.th}>SKU</th>
+                  <th style={ls.th}>Product Name</th>
+                  <th style={ls.th}>String ID</th>
                   <th style={ls.thR}>Activos</th>
                   <th style={ls.thR}>Suspensos</th>
                   <th style={ls.thR}>Aviso</th>
@@ -399,8 +400,8 @@ export default function LicensesPage(): React.ReactElement {
                   <tr key={sku.skuId ?? i} style={i % 2 === 0 ? ls.trEven : ls.trOdd}>
                     <td style={ls.td}>
                       <div style={ls.skuName}>{sku.skuPopularName}</div>
-                      <div style={ls.skuPart}>{sku.skuPartNumber}</div>
                     </td>
+                    <td style={{ ...ls.td, ...ls.skuPart }}>{sku.skuPartNumber}</td>
                     <td style={ls.tdR}>{sku.consumedUnits.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidSuspended.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidWarning.toLocaleString('pt-PT')}</td>
