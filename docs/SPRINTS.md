@@ -930,4 +930,18 @@ equivalente no React:
 - [x] Exibir site, biblioteca, caminho, data, colaborador e métricas de versões
 - [x] Exportar exatamente o resultado filtrado para CSV
 - [x] Homologação automatizada e visual
+- [x] PR frontend aprovado e mesclado — #38
+
+### Bloco 6 — Versionados por Período
+
+- [x] Remover endpoint inexistente e fallback por sumários
+- [x] Integrar `/api/analytics/topversioned/:scanId`
+- [x] Preservar recorte de versões por `LastModified`
+- [x] Selecionar arquivos por `File Created` e ranquear pelo histórico conhecido
+- [x] Permitir limites 80/100/200/300
+- [x] Filtrar por site, caminho, pessoa ou arquivo
+- [x] Exportar exatamente o resultado filtrado para CSV
+- [x] Exibir aviso de timeline de versões incompleta
+- [x] Homologação automatizada e visual
+- [x] PR backend aprovado e mesclado — #77
 - [ ] PR frontend aprovado e mesclado
