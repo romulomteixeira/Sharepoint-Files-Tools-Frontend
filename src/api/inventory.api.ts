@@ -14,9 +14,84 @@ import type {
   PaginatedResponse,
 } from '../types';
 
+export type LatestSitesPageSize = 10 | 30 | 50 | 100;
+
+export interface LatestInventorySite {
+  siteId: string;
+  siteName: string;
+  siteUrl: string;
+  filesCount: number;
+  bytesTotal: number;
+  versionsBytesTotal: number;
+  totalBytes: number;
+  scanId: string;
+  scannedAt: string;
+}
+
+export interface LatestSitesResponse {
+  page: number;
+  pageSize: LatestSitesPageSize;
+  total: number;
+  totalPages: number;
+  items: LatestInventorySite[];
+}
+
+export interface LatestSiteFile {
+  scanId: string;
+  siteId: string;
+  siteName: string;
+  siteUrl: string;
+  driveId: string;
+  driveName: string;
+  itemId: string;
+  name: string;
+  extension: string;
+  fullPath: string;
+  sizeBytes: number;
+  created: string;
+  modified: string;
+  createdBy: string;
+  modifiedBy: string;
+  webUrl?: string;
+  versionCount: number;
+  versionsBytes: number;
+  totalBytes: number;
+}
+
+export interface LatestSiteDrilldown {
+  site: Pick<LatestInventorySite, 'siteId' | 'siteName' | 'siteUrl' | 'scanId' | 'scannedAt'>;
+  page: number;
+  pageSize: LatestSitesPageSize;
+  totalFiles: number;
+  totalPages: number;
+  libraries: Array<{
+    driveId: string;
+    driveName: string;
+    files: LatestSiteFile[];
+  }>;
+}
+
 /** Resumo agregado do scan (totais de sites, drives, bytes, extensões). */
 export async function getInventorySummary(scanId: string): Promise<InventorySummary> {
   return get<InventorySummary>(`/api/inventory/${scanId}/summary`);
+}
+
+export async function getLatestInventorySites(params: {
+  search?: string;
+  page?: number;
+  pageSize?: LatestSitesPageSize;
+} = {}): Promise<LatestSitesResponse> {
+  return get<LatestSitesResponse>('/api/inventory/sites/latest', params);
+}
+
+export async function getLatestInventorySiteFiles(
+  siteId: string,
+  params: { page?: number; pageSize?: LatestSitesPageSize } = {},
+): Promise<LatestSiteDrilldown> {
+  return get<LatestSiteDrilldown>(
+    `/api/inventory/sites/latest/${encodeURIComponent(siteId)}/files`,
+    params,
+  );
 }
 
 /** Lista de sites com rollup de tamanho. */
