@@ -918,4 +918,16 @@ equivalente no React:
 - [x] Exportar CSV/JSONL exatamente com o resultado filtrado exibido
 - [x] Homologação automatizada e visual
 - [x] PR backend aprovado e mesclado — #76
+- [x] PR frontend aprovado e mesclado — #37
+
+### Bloco 5 — Monitor de Oneração
+
+- [x] Substituir a comparação entre scans por `/api/analytics/topcost/:scanId`
+- [x] Adicionar seleção de scan e períodos dia/semana/mês/ano
+- [x] Permitir `LastModified` e `File Created`
+- [x] Permitir limites 80/100/200/300
+- [x] Filtrar por site, caminho, pessoa ou arquivo
+- [x] Exibir site, biblioteca, caminho, data, colaborador e métricas de versões
+- [x] Exportar exatamente o resultado filtrado para CSV
+- [x] Homologação automatizada e visual
 - [ ] PR frontend aprovado e mesclado
