@@ -16,9 +16,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listScans, createScan, getScanStatus, cancelScan } from '../api/scans.api';
-import { getInventorySummary, getTopFiles } from '../api/inventory.api';
+import { getInventorySummary, getTopFiles, getInventorySites } from '../api/inventory.api';
 import { ApiClientError } from '../api/client';
-import type { Scan, ScanStatusDetail, ScanProgress, InventorySummary, FileItem } from '../types';
+import type { Scan, ScanStatusDetail, ScanProgress, InventorySummary, FileItem, SiteRollup } from '../types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -145,7 +145,9 @@ export default function DashboardPage(): React.ReactElement {
   const [scanId, setScanId]         = useState<string | null>(null);
   const [detail, setDetail]         = useState<ScanStatusDetail | null>(null);
   const [summary, setSummary]       = useState<InventorySummary | null>(null);
-  const [topFiles, setTopFiles]     = useState<FileItem[]>([]);
+  const [topFiles, setTopFiles]         = useState<FileItem[]>([]);
+  const [topSites, setTopSites]         = useState<SiteRollup[]>([]);
+  const [topVersioned, setTopVersioned] = useState<FileItem[]>([]);
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState<{ msg: string; kind: 'ok' | 'bad' } | null>(null);
   const [creating, setCreating]     = useState(false);
@@ -176,12 +178,16 @@ export default function DashboardPage(): React.ReactElement {
     const isCompleted = scanObj?.status === 'completed'
       || detailRes.status === 'fulfilled' && detailRes.value.status === 'completed';
 
-    const [sumRes, topRes] = await Promise.allSettled([
+    const [sumRes, topRes, sitesRes, versionedRes] = await Promise.allSettled([
       getInventorySummary(id),
       isCompleted ? getTopFiles(id, { limit: 10 }) : Promise.resolve([]),
+      isCompleted ? getInventorySites(id, { pageSize: 20, sort: 'bytes_desc' }) : Promise.resolve(null),
+      isCompleted ? getTopFiles(id, { limit: 20, metric: 'versions' }) : Promise.resolve([]),
     ]);
     if (sumRes.status === 'fulfilled') setSummary(sumRes.value);
     if (topRes.status === 'fulfilled') setTopFiles(topRes.value as FileItem[]);
+    if (sitesRes.status === 'fulfilled' && sitesRes.value) setTopSites(sitesRes.value.items ?? []);
+    if (versionedRes.status === 'fulfilled') setTopVersioned(versionedRes.value as FileItem[]);
     setLastUpdated(new Date());
   }, []);
 
@@ -200,6 +206,8 @@ export default function DashboardPage(): React.ReactElement {
     if (!scanId) return;
     setSummary(null);
     setTopFiles([]);
+    setTopSites([]);
+    setTopVersioned([]);
     setDetail(null);
     loadScanData(scanId, scans);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -274,6 +282,8 @@ export default function DashboardPage(): React.ReactElement {
 
   const topExt = summary?.topExtensions?.slice(0, 10) ?? [];
   const maxExt = topExt[0]?.fileCount ?? 1;
+  const topExtByBytes = [...(summary?.topExtensions ?? [])].sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0)).slice(0, 10);
+  const maxExtBytes   = topExtByBytes[0]?.totalBytes ?? 1;
 
   const statusLabel: Record<string, string> = {
     pending: 'Aguardando', running: 'Em execução', completed: 'Concluído',
@@ -518,6 +528,113 @@ export default function DashboardPage(): React.ReactElement {
                   <Link to={`/inventory/${scanId}`} style={s.viewAll}>Ver inventário completo →</Link>
                 </div>
               )}
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ── Gráficos adicionais ─────────────────────────────────────────────── */}
+
+      {/* Top 20 sites por utilização */}
+      {topSites.length > 0 && (
+        <div style={s.card}>
+          <div style={s.cardHead}>
+            <div>
+              <div style={s.cardTitle}>Top 20 sites por utilização</div>
+              <div style={s.cardSub}>Volume total de arquivos (scan selecionado)</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {topSites.map((site, i) => {
+              const maxBytes = topSites[0]?.totalBytes ?? 1;
+              const pct = Math.round(((site.totalBytes ?? 0) / maxBytes) * 100);
+              return (
+                <div key={site.siteId}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 10, color: C.muted, width: 18, textAlign: 'right' }}>{i + 1}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
+                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{fmtNum(site.totalFiles)} arq.</span>
+                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap', minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden', marginLeft: 24 }}>
+                    <div style={{ height: '100%', borderRadius: 2, background: C.accent, width: `${pct}%`, transition: 'width .3s ease' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Top 10 extensões por espaço + Top 20 arquivos com mais versões */}
+      {(topExtByBytes.length > 0 || topVersioned.length > 0) && (
+        <div style={s.twoCol}>
+
+          {topExtByBytes.length > 0 && (
+            <div style={s.card}>
+              <div style={s.cardHead}>
+                <div>
+                  <div style={s.cardTitle}>Top 10 extensões por espaço usado</div>
+                  <div style={s.cardSub}>Volume total (arquivos + versões)</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {topExtByBytes.map(ext => {
+                  const pctExt = Math.round(((ext.totalBytes ?? 0) / maxExtBytes) * 100);
+                  return (
+                    <div key={ext.extension}>
+                      <div style={s.extRow}>
+                        <span style={s.extName}>{ext.extension || '(sem extensão)'}</span>
+                        <span style={s.extCount}>{fmtNum(ext.fileCount)} arq.</span>
+                        <span style={s.extBytes}>{fmtBytes(ext.totalBytes)}</span>
+                      </div>
+                      <div style={s.extTrack}>
+                        <div style={{ ...s.extFill, width: `${pctExt}%`, background: '#2f855a' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {topVersioned.length > 0 && (
+            <div style={s.card}>
+              <div style={s.cardHead}>
+                <div>
+                  <div style={s.cardTitle}>Top 20 arquivos com mais versões</div>
+                  <div style={s.cardSub}>Últimos 30 dias (scan selecionado)</div>
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={s.th}>#</th>
+                      <th style={s.th}>Nome</th>
+                      <th style={s.th}>Ext.</th>
+                      <th style={{ ...s.th, textAlign: 'right' }}>Versões</th>
+                      <th style={{ ...s.th, textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topVersioned.map((f, i) => (
+                      <tr key={f.id ?? i} style={s.tr}>
+                        <td style={{ ...s.td, color: C.muted, width: 24 }}>{i + 1}</td>
+                        <td style={{ ...s.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.webUrl
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a>
+                            : <span style={{ color: C.text }}>{f.name}</span>}
+                        </td>
+                        <td style={{ ...s.td, color: C.muted }}>{f.extension || '—'}</td>
+                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(f.versionCount)}</td>
+                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.totalBytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 

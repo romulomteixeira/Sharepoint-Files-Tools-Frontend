@@ -295,8 +295,8 @@ export default function InventoryPage(): React.ReactElement {
       .then(resp => {
         if (cancelled) return;
         setAllFiles(resp.items);
-        setHasMore(resp.pageInfo.hasNextPage);
-        setNextCursor(resp.pageInfo.nextCursor);
+        setHasMore(resp.pageInfo?.hasNextPage ?? false);
+        setNextCursor(resp.pageInfo?.nextCursor ?? null);
       })
       .catch(err => {
         if (cancelled) return;
@@ -330,8 +330,8 @@ export default function InventoryPage(): React.ReactElement {
     })
       .then(resp => {
         setAllFiles(prev => [...prev, ...resp.items]);
-        setHasMore(resp.pageInfo.hasNextPage);
-        setNextCursor(resp.pageInfo.nextCursor);
+        setHasMore(resp.pageInfo?.hasNextPage ?? false);
+        setNextCursor(resp.pageInfo?.nextCursor ?? null);
       })
       .catch(err => {
         setFilesError(err instanceof Error ? err.message : 'Erro ao carregar mais arquivos');
