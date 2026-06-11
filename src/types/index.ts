@@ -169,16 +169,31 @@ export interface DriveRollup {
 }
 
 export interface FileItem {
-  id: string;
+  id?: string;
+  scanId?: string;
   siteId: string;
+  siteName?: string;
+  siteUrl?: string;
   driveId: string;
+  driveName?: string;
   itemId: string;
   name: string;
   extension: string;
+  fullPath?: string;
+  sizeBytes?: number;
+  created?: string;
+  modified?: string;
   totalBytes: number;
   webUrl?: string;
+  versionCount?: number;
+  versionsBytes?: number;
+  versionsUnknownCount?: number;
+  originScanId?: string;
+  originScannedAt?: string | null;
+  /** Campos legados mantidos durante a migração dos contratos. */
   modifiedAt?: string;
   createdBy?: string;
+  modifiedBy?: string;
 }
 
 export interface ExtensionRollup {

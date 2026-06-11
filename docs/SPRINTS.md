@@ -893,7 +893,7 @@ equivalente no React:
 - [x] Exibir Product Name e String ID em colunas distintas
 - [x] Remover a legenda fixa `Base (1024)` e usar o valor recebido pelo contrato
 - [x] Homologação automatizada e visual
-- [ ] PR frontend aprovado e mesclado
+- [x] PR frontend aprovado e mesclado — #35
 
 ### Bloco 3 — Realizar Scans e nova aba Sites
 
@@ -905,4 +905,17 @@ equivalente no React:
 - [x] Permitir drill-down sob demanda entre 1 e 10 sites
 - [x] Exibir bibliotecas, arquivos, tamanho, versões, espaço das versões e total
 - [x] Homologação automatizada e visual
+- [x] PR frontend aprovado e mesclado — #36
+
+### Bloco 4 — Top Arquivos
+
+- [x] Corrigir o contrato `{ items }` nas consultas por scan
+- [x] Restaurar maiores arquivos, arquivos + versões e mais versionados
+- [x] Manter limite independente por visão
+- [x] Adicionar consolidado latest-wins por `(driveId, itemId)`
+- [x] Permitir ranking consolidado por tamanho, total ou versões
+- [x] Exibir scan e data de origem no consolidado
+- [x] Exportar CSV/JSONL exatamente com o resultado filtrado exibido
+- [x] Homologação automatizada e visual
+- [x] PR backend aprovado e mesclado — #76
 - [ ] PR frontend aprovado e mesclado

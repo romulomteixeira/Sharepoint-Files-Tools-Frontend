@@ -1,692 +1,290 @@
-/**
- * TopFilesPage.tsx — Top N maiores arquivos do tenant (Sprint 14)
- *
- * Funcionalidades:
- *   - Seletor de scan concluído
- *   - Top N configurável: 50 / 100 / 500
- *   - Tabela com: posição, nome (link), site, extensão, tamanho, modificado
- *   - Ordenação por tamanho (padrão), nome, data — client-side sobre os dados carregados
- *   - Filtro inline por extensão
- *   - Botão para exportar o resultado atual como CSV/JSONL
- *   - Design system idêntico às demais páginas
- */
-
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../hooks/useApi';
+import { getLatestTopFiles, getTopFiles } from '../api/inventory.api';
+import type { TopFilesMetric } from '../api/inventory.api';
 import { listScans } from '../api/scans.api';
-import { getTopFiles, getInventorySites } from '../api/inventory.api';
-import { exportInventory, getExportJobStatus, getDownloadUrl } from '../api/reports.api';
-import type { SiteRollup, ExportJob } from '../types';
-import { useRef, useEffect } from 'react';
+import { useApi } from '../hooks/useApi';
+import type { FileItem } from '../types';
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+const LIMITS = [50, 100, 500] as const;
+type ViewKey = TopFilesMetric | 'latest';
 
-const C = {
-  bg:     '#eef1f5',
-  panel:  '#ffffff',
-  border: '#c8ced8',
-  accent: '#2b6cb0',
-  text:   '#1a202c',
-  muted:  '#4a5568',
-  good:   '#276749',
-  warn:   '#c05621',
-  bad:    '#c53030',
-} as const;
-
-// ─── Constantes ───────────────────────────────────────────────────────────────
-
-const EXPORT_POLL_MS  = 2_000;
-const TERMINAL_EXPORT = new Set(['completed', 'failed', 'cancelled']);
-
-const LIMIT_OPTIONS = [
-  { value: 50,  label: 'Top 50'  },
-  { value: 100, label: 'Top 100' },
-  { value: 500, label: 'Top 500' },
+const VIEWS: Array<{ key: ViewKey; label: string; description: string }> = [
+  { key: 'size', label: 'Maiores arquivos', description: 'Tamanho atual do arquivo' },
+  { key: 'total', label: 'Arquivos + versões', description: 'Arquivo atual somado ao histórico de versões' },
+  { key: 'versions', label: 'Mais versionados', description: 'Quantidade de versões conhecidas' },
+  { key: 'latest', label: 'Consolidado', description: 'Último registro concluído de cada arquivo' },
 ];
 
-type SortKey = 'size' | 'name' | 'date';
-
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: 'size', label: 'Maior tamanho' },
-  { value: 'name', label: 'Nome A→Z'      },
-  { value: 'date', label: 'Mais recente'  },
-];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtBytes(b: number | undefined): string {
-  if (b == null || b === 0) return '0 B';
+function fmtBytes(value = 0): string {
+  if (!value) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
-  return `${(b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function fmtDate(iso: string | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('pt-BR');
+function fmtDate(value?: string | null): string {
+  return value ? new Date(value).toLocaleString('pt-BR') : '—';
 }
 
-function fmtNum(n: number | undefined): string {
-  if (n == null) return '—';
-  return n.toLocaleString('pt-BR');
+function csvCell(value: unknown): string {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+function exportRows(rows: FileItem[], format: 'csv' | 'jsonl', view: ViewKey): void {
+  const normalized = rows.map(file => ({
+    arquivo: file.name,
+    site: file.siteName || file.siteId,
+    biblioteca: file.driveName || file.driveId,
+    caminho: file.fullPath || '',
+    extensao: file.extension || '',
+    tamanho_bytes: file.sizeBytes ?? 0,
+    versoes: file.versionCount ?? 0,
+    espaco_versoes_bytes: file.versionsBytes ?? 0,
+    total_bytes: file.totalBytes ?? 0,
+    modificado_em: file.modified || file.modifiedAt || '',
+    scan_origem: file.originScanId || file.scanId || '',
+    data_origem: file.originScannedAt || '',
+  }));
+  const content = format === 'jsonl'
+    ? normalized.map(row => JSON.stringify(row)).join('\n')
+    : [
+        Object.keys(normalized[0] ?? {}).map(csvCell).join(','),
+        ...normalized.map(row => Object.values(row).map(csvCell).join(',')),
+      ].join('\n');
+  const blob = new Blob([content], {
+    type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/jsonl;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `top-arquivos-${view}-${new Date().toISOString().slice(0, 10)}.${format}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 export default function TopFilesPage(): React.ReactElement {
-  // ── Controles
   const [selectedScanId, setSelectedScanId] = useState('');
-  const [topN,           setTopN]           = useState<number>(100);
-  const [sortKey,        setSortKey]        = useState<SortKey>('size');
-  const [filterExt,      setFilterExt]      = useState('');
+  const [activeView, setActiveView] = useState<ViewKey>('size');
+  const [latestMetric, setLatestMetric] = useState<TopFilesMetric>('total');
+  const [limits, setLimits] = useState<Record<ViewKey, number>>({
+    size: 100,
+    total: 100,
+    versions: 100,
+    latest: 100,
+  });
+  const [extension, setExtension] = useState('');
+  const limit = limits[activeView];
+  const metric: TopFilesMetric = activeView === 'latest' ? latestMetric : activeView;
 
-  // ── Exportação
-  const [exportJob,     setExportJob]     = useState<ExportJob | null>(null);
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportError,   setExportError]   = useState<string | null>(null);
-  const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // ── Dados
   const { data: scans, loading: scansLoading } = useApi(listScans, []);
-  const completedScans = (scans ?? []).filter(sc => sc.status === 'completed');
+  const completedScans = (scans ?? []).filter(scan => scan.status === 'completed');
 
-  const { data: topFiles, loading: filesLoading, error: filesError } = useApi(
-    () => selectedScanId
-      ? getTopFiles(selectedScanId, { limit: topN })
-      : Promise.resolve(null),
-    [selectedScanId, topN],
+  const { data: files, loading, error } = useApi(
+    () => activeView === 'latest'
+      ? getLatestTopFiles({ metric, limit })
+      : selectedScanId
+        ? getTopFiles(selectedScanId, { metric, limit })
+        : Promise.resolve(null),
+    [activeView, selectedScanId, metric, limit],
   );
 
-  const { data: sitesPage } = useApi(
-    () => selectedScanId
-      ? getInventorySites(selectedScanId, { pageSize: 500 })
-      : Promise.resolve(null),
-    [selectedScanId],
+  const extensions = useMemo(
+    () => Array.from(new Set((files ?? []).map(file => file.extension || ''))).sort(),
+    [files],
   );
-
-  // ── Cleanup polling
-  useEffect(() => {
-    return () => { if (exportPollRef.current) clearInterval(exportPollRef.current); };
-  }, []);
-
-  // ── Mapa siteId → siteName
-  const siteMap = useMemo(
-    () => Object.fromEntries(
-      (sitesPage?.items ?? []).map((st: SiteRollup) => [st.siteId, st.siteName || st.siteUrl || st.siteId]),
-    ),
-    [sitesPage],
+  const displayed = useMemo(
+    () => extension ? (files ?? []).filter(file => (file.extension || '') === extension) : (files ?? []),
+    [extension, files],
   );
-
-  // ── Extensões disponíveis nos dados carregados
-  const availableExts = useMemo(() => {
-    if (!topFiles) return [];
-    const seen = new Set<string>();
-    topFiles.forEach(f => seen.add(f.extension || ''));
-    return Array.from(seen).sort();
-  }, [topFiles]);
-
-  // ── Filtragem e ordenação client-side
-  const displayFiles = useMemo(() => {
-    if (!topFiles) return [];
-    const list = filterExt
-      ? topFiles.filter(f => (f.extension || '') === filterExt)
-      : [...topFiles];
-
-    list.sort((a, b) => {
-      if (sortKey === 'size') return (b.totalBytes ?? 0) - (a.totalBytes ?? 0);
-      if (sortKey === 'name') return a.name.localeCompare(b.name, 'pt-BR');
-      if (sortKey === 'date') {
-        const da = a.modifiedAt ? new Date(a.modifiedAt).getTime() : 0;
-        const db = b.modifiedAt ? new Date(b.modifiedAt).getTime() : 0;
-        return db - da;
-      }
-      return 0;
-    });
-    return list;
-  }, [topFiles, filterExt, sortKey]);
-
-  // ── Exportação
-  async function startExport(format: 'csv' | 'jsonl') {
-    if (!selectedScanId || exportLoading) return;
-
-    if (exportPollRef.current) { clearInterval(exportPollRef.current); exportPollRef.current = null; }
-    setExportJob(null);
-    setExportError(null);
-    setExportLoading(true);
-
-    try {
-      const job = await exportInventory({
-        scanId:    selectedScanId,
-        format,
-        extension: filterExt || undefined,
-        limit:     topN,
-      });
-      setExportJob(job);
-
-      if (job.status === 'completed') {
-        triggerDownload(job, format);
-        setExportLoading(false);
-        return;
-      }
-
-      exportPollRef.current = setInterval(async () => {
-        try {
-          const updated = await getExportJobStatus(job.jobId);
-          const merged: ExportJob = {
-            ...job,
-            status:      updated.status,
-            downloadUrl: updated.downloadUrl ?? job.downloadUrl,
-            finishedAt:  updated.finishedAt,
-          };
-          setExportJob(merged);
-          if (TERMINAL_EXPORT.has(merged.status)) {
-            clearInterval(exportPollRef.current!);
-            exportPollRef.current = null;
-            setExportLoading(false);
-            if (merged.status === 'completed') triggerDownload(merged, format);
-          }
-        } catch {
-          clearInterval(exportPollRef.current!);
-          exportPollRef.current = null;
-          setExportError('Erro ao verificar status da exportação');
-          setExportLoading(false);
-        }
-      }, EXPORT_POLL_MS);
-
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Erro ao exportar');
-      setExportLoading(false);
-    }
-  }
-
-  function triggerDownload(job: ExportJob, format: 'csv' | 'jsonl') {
-    const url = job.downloadUrl ?? getDownloadUrl(job.jobId);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `top${topN}_${selectedScanId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
-  // ── Derivados
-  const maxBytes = displayFiles[0]?.totalBytes ?? 1;
+  const currentView = VIEWS.find(view => view.key === activeView)!;
+  const needsScan = activeView !== 'latest';
 
   return (
-    <>
-      <style>{`@keyframes tf-spin { to { transform: rotate(360deg); } }`}</style>
+    <div style={styles.page}>
+      <header style={styles.header}>
+        <div>
+          <h1 style={styles.title}>Top Arquivos</h1>
+          <p style={styles.subtitle}>Visões por scan e consolidada, com métricas e limites independentes.</p>
+        </div>
+        <Link to="/" style={styles.link}>Dashboard</Link>
+      </header>
 
-      <div style={s.page}>
-
-        {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div style={s.header}>
-          <div>
-            <div style={s.pageTitle}>Top Arquivos</div>
-            <div style={s.pageSub}>Maiores arquivos do inventário — ordenados por tamanho</div>
-          </div>
-          <Link to="/" style={s.breadcrumb}>← Dashboard</Link>
+      <section style={styles.panel}>
+        <div role="tablist" aria-label="Visões de top arquivos" style={styles.tabs}>
+          {VIEWS.map(view => (
+            <button
+              key={view.key}
+              role="tab"
+              aria-selected={activeView === view.key}
+              style={{ ...styles.tab, ...(activeView === view.key ? styles.activeTab : {}) }}
+              onClick={() => { setActiveView(view.key); setExtension(''); }}
+            >
+              <strong>{view.label}</strong>
+              <span style={styles.tabDescription}>{view.description}</span>
+            </button>
+          ))}
         </div>
 
-        {/* ── Controles ───────────────────────────────────────────────────── */}
-        <div style={s.controls}>
-
-          {/* Scan selector */}
-          <div style={s.ctrlGroup}>
-            <label style={s.ctrlLabel}>Scan</label>
-            {scansLoading ? (
-              <div style={{ fontSize: 12, color: C.muted }}>Carregando…</div>
-            ) : (
+        <div style={styles.controls}>
+          {needsScan && (
+            <label style={styles.field}>
+              <span>Scan concluído</span>
               <select
+                aria-label="Scan concluído"
                 value={selectedScanId}
-                onChange={e => { setSelectedScanId(e.target.value); setFilterExt(''); }}
-                style={s.select}
+                disabled={scansLoading}
+                onChange={event => { setSelectedScanId(event.target.value); setExtension(''); }}
               >
-                <option value="">— selecione um scan —</option>
-                {completedScans.map(sc => (
-                  <option key={sc.id} value={sc.id}>
-                    {sc.id.slice(0, 16)}…  ·  {fmtNum(sc.totalFiles)} arqs  ·  {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
+                <option value="">Selecione um scan</option>
+                {completedScans.map(scan => (
+                  <option key={scan.id} value={scan.id}>
+                    {scan.id} · {new Date(scan.createdAt).toLocaleDateString('pt-BR')}
                   </option>
                 ))}
               </select>
-            )}
-          </div>
-
-          {/* Top N */}
-          <div style={s.ctrlGroup}>
-            <label style={s.ctrlLabel}>Quantidade</label>
-            <div style={s.btnGroup}>
-              {LIMIT_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  style={{
-                    ...s.toggleBtn,
-                    background:  topN === opt.value ? C.accent : C.panel,
-                    color:       topN === opt.value ? '#fff'    : C.text,
-                    borderColor: topN === opt.value ? C.accent  : C.border,
-                  }}
-                  onClick={() => setTopN(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Ordenação */}
-          <div style={s.ctrlGroup}>
-            <label style={s.ctrlLabel}>Ordenar por</label>
-            <div style={s.btnGroup}>
-              {SORT_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  style={{
-                    ...s.toggleBtn,
-                    background:  sortKey === opt.value ? C.accent : C.panel,
-                    color:       sortKey === opt.value ? '#fff'    : C.text,
-                    borderColor: sortKey === opt.value ? C.accent  : C.border,
-                  }}
-                  onClick={() => setSortKey(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filtro extensão */}
-          {availableExts.length > 0 && (
-            <div style={s.ctrlGroup}>
-              <label style={s.ctrlLabel}>Extensão</label>
-              <select
-                value={filterExt}
-                onChange={e => setFilterExt(e.target.value)}
-                style={s.select}
-              >
-                <option value="">Todas ({topFiles?.length ?? 0})</option>
-                {availableExts.map(ext => (
-                  <option key={ext} value={ext}>
-                    {ext || '(sem ext)'} ({topFiles?.filter(f => (f.extension || '') === ext).length ?? 0})
-                  </option>
-                ))}
-              </select>
-            </div>
+            </label>
           )}
 
-          {/* Exportar */}
-          <div style={{ ...s.ctrlGroup, marginLeft: 'auto' }}>
-            <label style={s.ctrlLabel}>Exportar resultado</label>
-            <div style={s.btnGroup}>
-              <button
-                style={{ ...s.btn, ...s.btnSecondary, opacity: (!selectedScanId || exportLoading) ? 0.5 : 1 }}
-                disabled={!selectedScanId || exportLoading}
-                onClick={() => startExport('csv')}
+          <label style={styles.field}>
+            <span>Limite desta visão</span>
+            <select
+              aria-label="Limite desta visão"
+              value={limit}
+              onChange={event => setLimits(current => ({
+                ...current,
+                [activeView]: Number(event.target.value),
+              }))}
+            >
+              {LIMITS.map(value => <option key={value} value={value}>Top {value}</option>)}
+            </select>
+          </label>
+
+          {activeView === 'latest' && (
+            <label style={styles.field}>
+              <span>Ranking consolidado</span>
+              <select
+                aria-label="Ranking consolidado"
+                value={latestMetric}
+                onChange={event => setLatestMetric(event.target.value as TopFilesMetric)}
               >
-                {exportLoading && exportJob?.format === 'csv' ? '⏳…' : '↓ CSV'}
-              </button>
-              <button
-                style={{ ...s.btn, ...s.btnSecondary, opacity: (!selectedScanId || exportLoading) ? 0.5 : 1 }}
-                disabled={!selectedScanId || exportLoading}
-                onClick={() => startExport('jsonl')}
-              >
-                {exportLoading && exportJob?.format === 'jsonl' ? '⏳…' : '↓ JSONL'}
-              </button>
+                <option value="size">Tamanho do arquivo</option>
+                <option value="total">Arquivo + versões</option>
+                <option value="versions">Quantidade de versões</option>
+              </select>
+            </label>
+          )}
+
+          <label style={styles.field}>
+            <span>Extensão</span>
+            <select
+              aria-label="Filtrar por extensão"
+              value={extension}
+              disabled={!extensions.length}
+              onChange={event => setExtension(event.target.value)}
+            >
+              <option value="">Todas ({files?.length ?? 0})</option>
+              {extensions.map(value => <option key={value} value={value}>{value || 'Sem extensão'}</option>)}
+            </select>
+          </label>
+
+          <div style={styles.exportGroup}>
+            <span>Exportar resultado filtrado</span>
+            <div>
+              <button disabled={!displayed.length} onClick={() => exportRows(displayed, 'csv', activeView)}>CSV</button>
+              <button disabled={!displayed.length} onClick={() => exportRows(displayed, 'jsonl', activeView)}>JSONL</button>
             </div>
           </div>
-
         </div>
-        {/* /controls */}
+      </section>
 
-        {/* ── Status de exportação ─────────────────────────────────────────── */}
-        {(exportJob || exportError) && (
-          <div style={{
-            ...s.exportBar,
-            background:   exportJob?.status === 'completed' ? '#f0fff4' : exportJob?.status === 'failed' ? '#fff5f5' : '#ebf4ff',
-            borderColor:  exportJob?.status === 'completed' ? C.good    : exportJob?.status === 'failed' ? C.bad     : C.accent,
-          }}>
-            {exportError && <span style={{ color: C.bad }}>⚠ {exportError}</span>}
-            {exportJob?.status === 'completed' && (
-              <span style={{ color: C.good }}>
-                ✓ Pronto →{' '}
-                <a href={exportJob.downloadUrl ?? getDownloadUrl(exportJob.jobId)} download style={{ color: C.good, fontWeight: 700 }}>
-                  Baixar {exportJob.format.toUpperCase()} ↓
-                </a>
-              </span>
-            )}
-            {(exportJob?.status === 'pending' || exportJob?.status === 'running') && (
-              <span style={{ color: C.accent, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={s.spinner} /> Gerando {exportJob.format.toUpperCase()}…
-              </span>
-            )}
-            {(exportJob?.status === 'failed' || exportJob?.status === 'cancelled') && (
-              <span style={{ color: C.bad }}>✗ Exportação falhou</span>
-            )}
-            <button style={s.dismissBtn} onClick={() => { setExportJob(null); setExportError(null); }}>✕</button>
+      <section style={styles.panel}>
+        <div style={styles.panelHeader}>
+          <div>
+            <h2 style={styles.panelTitle}>{currentView.label}</h2>
+            <span style={styles.subtitle}>{currentView.description}</span>
           </div>
+          <span style={styles.badge}>{displayed.length} arquivos</span>
+        </div>
+
+        {needsScan && !selectedScanId && <p style={styles.state}>Selecione um scan concluído.</p>}
+        {(!needsScan || selectedScanId) && loading && <p style={styles.state}>Carregando arquivos...</p>}
+        {error && <p role="alert" style={styles.error}>{error}</p>}
+        {(!needsScan || selectedScanId) && !loading && !error && displayed.length === 0 && (
+          <p style={styles.state}>Nenhum arquivo encontrado para os filtros atuais.</p>
         )}
 
-        {/* ── Tabela + barra de volume ─────────────────────────────────────── */}
-        <div style={s.tablePanel}>
-
-          {/* Header do painel */}
-          <div style={s.tablePanelHeader}>
-            <span style={s.panelTitle}>
-              {selectedScanId ? `Top ${topN} arquivos` : 'Arquivos'}
-            </span>
-            {displayFiles.length > 0 && (
-              <span style={s.countBadge}>
-                {filterExt
-                  ? `${displayFiles.length} de ${topFiles?.length ?? 0}`
-                  : displayFiles.length}
-              </span>
-            )}
-            {filterExt && (
-              <span
-                style={{ ...s.extBadge, cursor: 'pointer' }}
-                onClick={() => setFilterExt('')}
-                title="Remover filtro"
-              >
-                {filterExt} ✕
-              </span>
-            )}
-          </div>
-
-          {/* States */}
-          {!selectedScanId && (
-            <div style={s.emptyMsg}>Selecione um scan para visualizar os maiores arquivos.</div>
-          )}
-          {selectedScanId && filesLoading && (
-            <div style={s.loadingMsg}>
-              <span style={s.spinner} /> Carregando top {topN} arquivos…
-            </div>
-          )}
-          {filesError && <div style={s.errorMsg}>⚠ {filesError}</div>}
-          {selectedScanId && !filesLoading && !filesError && displayFiles.length === 0 && (
-            <div style={s.emptyMsg}>Nenhum arquivo encontrado.</div>
-          )}
-
-          {/* Tabela */}
-          {displayFiles.length > 0 && (
-            <div style={s.tableWrap}>
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={{ ...s.th, width: '4%', textAlign: 'center' as const }}>#</th>
-                    <th style={{ ...s.th, width: '33%' }}>Nome</th>
-                    <th style={{ ...s.th, width: '22%' }}>Site</th>
-                    <th style={{ ...s.th, width: '8%'  }}>Ext</th>
-                    <th style={{ ...s.th, width: '16%' }}>Tamanho</th>
-                    <th style={{ ...s.th, width: '10%' }}>Modificado</th>
-                    <th style={{ ...s.th, width: '7%'  }}>Criado por</th>
+        {displayed.length > 0 && (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Arquivo</th>
+                  <th>Site / biblioteca</th>
+                  <th>Tamanho</th>
+                  <th>Versões</th>
+                  <th>Espaço versões</th>
+                  <th>Total</th>
+                  <th>Modificado</th>
+                  {activeView === 'latest' && <th>Origem</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {displayed.map((file, index) => (
+                  <tr key={`${file.driveId}:${file.itemId}:${index}`}>
+                    <td>{index + 1}</td>
+                    <td>
+                      {file.webUrl
+                        ? <a href={file.webUrl} target="_blank" rel="noreferrer">{file.name}</a>
+                        : file.name}
+                      <small style={styles.path}>{file.fullPath || file.extension || '—'}</small>
+                    </td>
+                    <td>{file.siteName || file.siteId}<small style={styles.path}>{file.driveName || file.driveId}</small></td>
+                    <td>{fmtBytes(file.sizeBytes)}</td>
+                    <td>{(file.versionCount ?? 0).toLocaleString('pt-BR')}</td>
+                    <td>{fmtBytes(file.versionsBytes)}</td>
+                    <td><strong>{fmtBytes(file.totalBytes)}</strong></td>
+                    <td>{fmtDate(file.modified || file.modifiedAt)}</td>
+                    {activeView === 'latest' && (
+                      <td>
+                        <code>{file.originScanId || file.scanId || '—'}</code>
+                        <small style={styles.path}>{fmtDate(file.originScannedAt)}</small>
+                      </td>
+                    )}
                   </tr>
-                </thead>
-                <tbody>
-                  {displayFiles.map((f, idx) => {
-                    const pct = Math.round((f.totalBytes / maxBytes) * 100);
-                    return (
-                      <tr key={f.id} style={idx % 2 === 0 ? s.trEven : s.trOdd}>
-
-                        {/* Posição */}
-                        <td style={{ ...s.td, textAlign: 'center', fontWeight: 700, color: idx < 3 ? C.accent : C.muted, fontSize: 11 }}>
-                          {idx + 1}
-                        </td>
-
-                        {/* Nome */}
-                        <td style={s.td}>
-                          <div style={s.nameCell}>
-                            {f.webUrl ? (
-                              <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink} title={f.name}>
-                                {f.name}
-                              </a>
-                            ) : (
-                              <span title={f.name}>{f.name}</span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Site */}
-                        <td style={{ ...s.td, ...s.cellMuted }}>
-                          <div style={s.cellEllipsis} title={f.siteId}>
-                            {siteMap[f.siteId] ?? f.siteId}
-                          </div>
-                        </td>
-
-                        {/* Extensão */}
-                        <td style={s.td}>
-                          <span
-                            style={{
-                              ...s.extBadge,
-                              cursor:     'pointer',
-                              background: (f.extension || '') === filterExt && filterExt ? C.accent : '#e8f0f8',
-                              color:      (f.extension || '') === filterExt && filterExt ? '#fff'    : C.accent,
-                            }}
-                            onClick={() => setFilterExt(
-                              (f.extension || '') === filterExt ? '' : (f.extension || ''),
-                            )}
-                            title="Filtrar por extensão"
-                          >
-                            {f.extension || '—'}
-                          </span>
-                        </td>
-
-                        {/* Tamanho + barra */}
-                        <td style={s.td}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <span style={{ fontVariantNumeric: 'tabular-nums' as const, fontWeight: 700, fontSize: 12 }}>
-                              {fmtBytes(f.totalBytes)}
-                            </span>
-                            <div style={s.barTrack}>
-                              <div style={{ ...s.barFill, width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Modificado */}
-                        <td style={{ ...s.td, ...s.cellMuted }}>{fmtDate(f.modifiedAt)}</td>
-
-                        {/* Criado por */}
-                        <td style={{ ...s.td, ...s.cellMuted }}>
-                          <div style={{ ...s.cellEllipsis, maxWidth: 100 }}>
-                            {f.createdBy || '—'}
-                          </div>
-                        </td>
-
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-        </div>
-        {/* /tablePanel */}
-
-      </div>
-    </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
-// ─── Estilos ──────────────────────────────────────────────────────────────────
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-    color:      C.text,
-    display:    'flex',
-    flexDirection: 'column',
-    gap:        12,
-  },
-
-  header: {
-    display:        'flex',
-    justifyContent: 'space-between',
-    alignItems:     'flex-start',
-    flexWrap:       'wrap',
-    gap:            8,
-  },
-  pageTitle: { fontSize: 22, fontWeight: 800, lineHeight: 1.2 },
-  pageSub:   { fontSize: 12, color: C.muted, marginTop: 2 },
-  breadcrumb: { fontSize: 12, color: C.muted, textDecoration: 'none', fontWeight: 600, alignSelf: 'flex-end' },
-
-  // Controls bar
-  controls: {
-    display:      'flex',
-    gap:          14,
-    flexWrap:     'wrap',
-    alignItems:   'flex-end',
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding:      '12px 14px',
-  },
-  ctrlGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
-  ctrlLabel: {
-    fontSize:      10,
-    fontWeight:    700,
-    color:         C.muted,
-    textTransform: 'uppercase',
-    letterSpacing: '.06em',
-  },
-  select: {
-    padding:      '6px 10px',
-    border:       `1px solid ${C.border}`,
-    borderRadius: 4,
-    fontSize:     12,
-    color:        C.text,
-    background:   C.panel,
-    fontFamily:   'inherit',
-    cursor:       'pointer',
-    minWidth:     220,
-  },
-  btnGroup: { display: 'flex', gap: 4 },
-  toggleBtn: {
-    padding:      '5px 12px',
-    border:       '1px solid',
-    borderRadius: 4,
-    fontSize:     11,
-    fontWeight:   700,
-    cursor:       'pointer',
-    fontFamily:   'inherit',
-    transition:   'background .12s, color .12s',
-  },
-
-  // Export bar
-  exportBar: {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          12,
-    padding:      '8px 14px',
-    borderRadius: 6,
-    border:       '1px solid',
-    fontSize:     13,
-    fontWeight:   600,
-  },
-  dismissBtn: {
-    marginLeft: 'auto',
-    background: 'none',
-    border:     'none',
-    cursor:     'pointer',
-    color:      C.muted,
-    fontSize:   14,
-    padding:    '0 4px',
-  },
-
-  // Table panel
-  tablePanel: {
-    background:   C.panel,
-    border:       `1px solid ${C.border}`,
-    borderRadius: 6,
-    overflow:     'hidden',
-  },
-  tablePanelHeader: {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          8,
-    padding:      '10px 14px',
-    borderBottom: `1px solid ${C.border}`,
-    background:   '#f7f9fb',
-  },
-  panelTitle: {
-    fontSize:      12,
-    fontWeight:    800,
-    color:         C.text,
-    textTransform: 'uppercase',
-    letterSpacing: '.06em',
-  },
-  countBadge: {
-    background:   C.accent,
-    color:        '#fff',
-    fontSize:     10,
-    fontWeight:   700,
-    padding:      '2px 7px',
-    borderRadius: 10,
-  },
-  extBadge: {
-    display:      'inline-block',
-    background:   '#e8f0f8',
-    color:        C.accent,
-    borderRadius: 3,
-    padding:      '1px 6px',
-    fontSize:     10,
-    fontWeight:   700,
-    fontFamily:   'monospace',
-  },
-
-  emptyMsg:   { padding: '32px 14px', textAlign: 'center', color: C.muted, fontSize: 13 },
-  loadingMsg: { display: 'flex', alignItems: 'center', gap: 8, padding: '24px 14px', color: C.muted, fontSize: 13 },
-  errorMsg:   { padding: '16px 14px', color: C.bad, fontSize: 13, fontWeight: 600 },
-
+const styles: Record<string, React.CSSProperties> = {
+  page: { display: 'grid', gap: 16, color: '#172033' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'start' },
+  title: { margin: 0, fontSize: 24 },
+  subtitle: { margin: '4px 0 0', color: '#5b6475', fontSize: 13 },
+  link: { color: '#2563a8', fontWeight: 700, textDecoration: 'none' },
+  panel: { background: '#fff', border: '1px solid #cbd2dc', borderRadius: 8, overflow: 'hidden' },
+  tabs: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(150px, 1fr))', borderBottom: '1px solid #cbd2dc' },
+  tab: { display: 'grid', gap: 3, padding: 12, border: 0, borderRight: '1px solid #dfe4eb', background: '#f7f9fb', cursor: 'pointer', textAlign: 'left' },
+  activeTab: { background: '#e8f1fb', color: '#174f87', boxShadow: 'inset 0 -3px #2563a8' },
+  tabDescription: { color: '#5b6475', fontSize: 11 },
+  controls: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', padding: 14 },
+  field: { display: 'grid', gap: 5, minWidth: 190, fontSize: 11, fontWeight: 700, color: '#4c5668' },
+  exportGroup: { display: 'grid', gap: 5, marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: '#4c5668' },
+  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#f7f9fb', borderBottom: '1px solid #cbd2dc' },
+  panelTitle: { margin: 0, fontSize: 15 },
+  badge: { padding: '3px 8px', borderRadius: 12, background: '#2563a8', color: '#fff', fontSize: 11, fontWeight: 700 },
+  state: { padding: 28, textAlign: 'center', color: '#5b6475' },
+  error: { padding: 16, color: '#b42318', fontWeight: 700 },
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th: {
-    padding:       '8px 10px',
-    textAlign:     'left',
-    fontWeight:    700,
-    fontSize:      10,
-    color:         C.muted,
-    textTransform: 'uppercase',
-    letterSpacing: '.05em',
-    background:    '#f7f9fb',
-    borderBottom:  `2px solid ${C.border}`,
-    whiteSpace:    'nowrap',
-  },
-  trEven: { background: C.panel },
-  trOdd:  { background: '#f9fafb' },
-  td: {
-    padding:       '7px 10px',
-    verticalAlign: 'middle',
-    borderBottom:  '1px solid #edf0f4',
-  },
-  cellMuted:    { color: C.muted, fontSize: 11 },
-  nameCell:     { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 },
-  fileLink:     { color: C.accent, textDecoration: 'none', fontWeight: 600 },
-  cellEllipsis: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 },
-
-  barTrack: { height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden', minWidth: 60 },
-  barFill:  { height: '100%', background: C.accent, borderRadius: 2, transition: 'width .3s ease' },
-
-  spinner: {
-    display:        'inline-block',
-    width:          12,
-    height:         12,
-    border:         `2px solid ${C.border}`,
-    borderTopColor: C.accent,
-    borderRadius:   '50%',
-    animation:      'tf-spin 0.7s linear infinite',
-    flexShrink:     0,
-  },
-
-  btn: {
-    padding:      '6px 12px',
-    borderRadius: 4,
-    fontSize:     11,
-    fontWeight:   700,
-    cursor:       'pointer',
-    fontFamily:   'inherit',
-    border:       '1px solid transparent',
-    transition:   'opacity .15s',
-  },
-  btnSecondary: { background: C.panel, color: C.accent, borderColor: C.accent },
-  mono: { fontFamily: 'monospace', fontSize: 11 },
+  path: { display: 'block', marginTop: 3, color: '#687386', fontSize: 10, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis' },
 };

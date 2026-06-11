@@ -125,12 +125,39 @@ export async function getInventoryFiles(
   return get<PaginatedResponse<FileItem>>(`/api/inventory/${scanId}/files`, params);
 }
 
-/** Top N arquivos por tamanho. */
+export type TopFilesMetric = 'size' | 'total' | 'versions';
+
+interface TopFilesResponse {
+  items: FileItem[];
+}
+
+/** Top N arquivos de um scan, com envelope legado { items }. */
 export async function getTopFiles(
   scanId: string,
-  params?: { limit?: number },
+  params: { limit?: number; metric?: TopFilesMetric } = {},
 ): Promise<FileItem[]> {
-  return get<FileItem[]>(`/api/inventory/${scanId}/top-files`, params);
+  const metric = params.metric ?? 'size';
+  const suffix = metric === 'total'
+    ? 'top-files-total'
+    : metric === 'versions'
+      ? 'top-versioned'
+      : 'top-files';
+  const response = await get<TopFilesResponse>(
+    `/api/inventory/${scanId}/${suffix}`,
+    { limit: params.limit },
+  );
+  return response.items;
+}
+
+/** Top N consolidado, deduplicado pelo backend usando o scan concluído mais recente. */
+export async function getLatestTopFiles(
+  params: { limit?: number; metric?: TopFilesMetric } = {},
+): Promise<FileItem[]> {
+  const response = await get<TopFilesResponse>(
+    '/api/inventory/top-files/latest',
+    { limit: params.limit, metric: params.metric ?? 'size' },
+  );
+  return response.items;
 }
 
 /** Versões agrupadas por período (dia / semana / mês). */
