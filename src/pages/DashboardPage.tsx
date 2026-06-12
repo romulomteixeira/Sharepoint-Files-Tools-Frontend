@@ -1,31 +1,13 @@
-/**
- * DashboardPage.tsx — Dashboard completo (Sprint 12)
- *
- * Implementa as mesmas funcionalidades do legado (public/app.js):
- *   - Seletor de scan (dropdown com todos os scans)
- *   - 6 KPI cards: Sites, Drives, Arquivos, Volume, Versões, Status
- *   - Barra de progresso de conclusão (estimativa simplificada)
- *   - Fluxo de scan: Sites → Drives → Arquivos → Final
- *   - Texto de atividade (stage atual)
- *   - Top extensões (barras horizontais com contagem e volume)
- *   - Top 10 maiores arquivos (tabela clicável)
- *   - Botões: Novo Scan, Cancelar, Atualizar, Ir para Inventário
- *   - Auto-refresh a cada 8 s para scans ativos
- */
-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { RefreshCw, Plus, X, ArrowRight } from 'lucide-react';
 import { listScans, createScan, getScanStatus, cancelScan } from '../api/scans.api';
 import { getInventorySummary, getTopFiles, getInventorySites } from '../api/inventory.api';
 import { ApiClientError } from '../api/client';
 import type { Scan, ScanStatusDetail, ScanProgress, InventorySummary, FileItem, SiteRollup } from '../types';
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
-
 const ACTIVE = new Set(['pending', 'running']);
 const REFRESH_MS = 8_000;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtBytes(n: number | undefined): string {
   if (!n) return '0 B';
@@ -44,39 +26,28 @@ function fmtDate(iso: string | undefined): string {
   return new Date(iso).toLocaleString('pt-BR');
 }
 
-/** Calcula % de conclusão a partir do progresso do scan. */
 function calcPercent(p: ScanProgress | undefined, status: string): number {
   if (!p) return 0;
   const st = String(p.status || status).toUpperCase();
-  if (['DONE', 'completed'].includes(st) || st === 'DONE') return 100;
+  if (['DONE', 'completed'].includes(st)) return 100;
   if (['FINALIZING', 'MATERIALIZING', 'ENRICHING'].includes(st)) return 92;
   if (st === 'ERROR' || st === 'failed') return 0;
-
-  const totalSites  = p.totalSites  || 0;
-  const doneSites   = p.doneSites   || 0;
+  const totalSites = p.totalSites || 0;
+  const doneSites = p.doneSites || 0;
   const totalDrives = p.totalDrives || 0;
-  const doneDrives  = p.doneDrives  || 0;
-
-  const siteRatio  = totalSites  > 0 ? doneSites  / totalSites  : 0;
+  const doneDrives = p.doneDrives || 0;
+  const siteRatio = totalSites > 0 ? doneSites / totalSites : 0;
   const driveRatio = totalDrives > 0 ? doneDrives / totalDrives : 0;
-
   const stage = String(p.stage || '').toUpperCase();
   if (stage === 'LISTING_SITES') return Math.round(siteRatio * 28);
-  if (stage === 'SCANNING_FILES' || stage === 'SCANNING_AND_VERSIONING') {
+  if (stage === 'SCANNING_FILES' || stage === 'SCANNING_AND_VERSIONING')
     return Math.round(28 + driveRatio * 58);
-  }
-  // fallback
   return Math.round(siteRatio * 28 + driveRatio * 58);
 }
 
 type FlowTone = 'idle' | 'run' | 'done' | 'warn' | 'bad';
 
-function flowTone(
-  done: number | undefined,
-  total: number | undefined,
-  isActive: boolean,
-  hasError: boolean,
-): FlowTone {
+function flowTone(done: number | undefined, total: number | undefined, isActive: boolean, hasError: boolean): FlowTone {
   if (hasError) return 'bad';
   const d = done ?? 0, t = total ?? 0;
   if (t > 0 && d >= t) return 'done';
@@ -85,73 +56,40 @@ function flowTone(
   return 'idle';
 }
 
-// ─── Sub-componentes ──────────────────────────────────────────────────────────
-
-interface KpiCardProps {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: string;
-}
-
-function KpiCard({ label, value, hint, accent = C.accent }: KpiCardProps) {
-  return (
-    <div style={s.kpi}>
-      <div style={s.kpiLabel}>{label}</div>
-      <div style={{ ...s.kpiValue, color: accent }}>{value}</div>
-      {hint && <div style={s.kpiHint}>{hint}</div>}
-    </div>
-  );
-}
-
-interface FlowNodeProps {
-  label: string;
-  value: string;
-  sub: string;
-  tone: FlowTone;
-}
-
-function FlowNode({ label, value, sub, tone }: FlowNodeProps) {
-  const dotColor: Record<FlowTone, string> = {
-    idle: '#9ca3af',
-    run: C.accent,
-    done: C.good,
-    warn: C.warn,
-    bad: C.bad,
-  };
-  const bg: Record<FlowTone, string> = {
-    idle: '#f1f5f9',
-    run: '#eff6ff',
-    done: '#f0fff4',
-    warn: '#fffaf0',
-    bad: '#fff5f5',
+function FlowNode({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: FlowTone }) {
+  const dotStyle: React.CSSProperties = {
+    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+    background: tone === 'bad' ? 'var(--bad)' : tone === 'done' ? 'var(--good)' : tone === 'run' ? 'var(--accent)' : tone === 'warn' ? 'var(--warn)' : 'var(--faint)',
   };
   return (
-    <div style={{ ...s.flowNode, background: bg[tone] }}>
-      <span style={{ ...s.flowDot, background: dotColor[tone] }} />
+    <div className="flow-node">
+      <span style={dotStyle} />
       <div>
-        <div style={s.flowLabel}>{label}</div>
-        <div style={{ ...s.flowValue, color: dotColor[tone] }}>{value}</div>
-        <div style={s.flowSub}>{sub}</div>
+        <div className="flow-label">{label}</div>
+        <div className="flow-value" style={{ color: dotStyle.background as string }}>{value}</div>
+        <div className="flow-sub">{sub}</div>
       </div>
     </div>
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+const STATUS_LABEL: Record<string, string> = {
+  pending: 'Aguardando', running: 'Em execução', completed: 'Concluído',
+  failed: 'Com falha', cancelled: 'Cancelado',
+};
 
 export default function DashboardPage(): React.ReactElement {
-  const [scans, setScans]           = useState<Scan[]>([]);
-  const [scanId, setScanId]         = useState<string | null>(null);
-  const [detail, setDetail]         = useState<ScanStatusDetail | null>(null);
-  const [summary, setSummary]       = useState<InventorySummary | null>(null);
-  const [topFiles, setTopFiles]         = useState<FileItem[]>([]);
-  const [topSites, setTopSites]         = useState<SiteRollup[]>([]);
+  const [scans, setScans]             = useState<Scan[]>([]);
+  const [scanId, setScanId]           = useState<string | null>(null);
+  const [detail, setDetail]           = useState<ScanStatusDetail | null>(null);
+  const [summary, setSummary]         = useState<InventorySummary | null>(null);
+  const [topFiles, setTopFiles]       = useState<FileItem[]>([]);
+  const [topSites, setTopSites]       = useState<SiteRollup[]>([]);
   const [topVersioned, setTopVersioned] = useState<FileItem[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [toast, setToast]           = useState<{ msg: string; kind: 'ok' | 'bad' } | null>(null);
-  const [creating, setCreating]     = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [toast, setToast]             = useState<{ msg: string; kind: 'ok' | 'bad' } | null>(null);
+  const [creating, setCreating]       = useState(false);
+  const [cancelling, setCancelling]   = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -160,23 +98,19 @@ export default function DashboardPage(): React.ReactElement {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // ── Carrega lista de scans ────────────────────────────────────────────────
   const loadScans = useCallback(async (): Promise<Scan[]> => {
     const data = await listScans();
     setScans(data);
     return data;
   }, []);
 
-  // ── Carrega dados do scan selecionado ─────────────────────────────────────
   const loadScanData = useCallback(async (id: string, scanList: Scan[]) => {
     const [detailRes] = await Promise.allSettled([getScanStatus(id)]);
-    if (detailRes.status === 'fulfilled') {
-      setDetail(detailRes.value);
-    }
+    if (detailRes.status === 'fulfilled') setDetail(detailRes.value);
 
     const scanObj = scanList.find(s => s.id === id);
     const isCompleted = scanObj?.status === 'completed'
-      || detailRes.status === 'fulfilled' && detailRes.value.status === 'completed';
+      || (detailRes.status === 'fulfilled' && detailRes.value.status === 'completed');
 
     const [sumRes, topRes, sitesRes, versionedRes] = await Promise.allSettled([
       getInventorySummary(id),
@@ -191,7 +125,6 @@ export default function DashboardPage(): React.ReactElement {
     setLastUpdated(new Date());
   }, []);
 
-  // ── Mount: carrega scans, seleciona o mais recente ───────────────────────
   useEffect(() => {
     setLoading(true);
     loadScans()
@@ -201,34 +134,25 @@ export default function DashboardPage(): React.ReactElement {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Quando scan muda: (re)carrega dados ──────────────────────────────────
   useEffect(() => {
     if (!scanId) return;
-    setSummary(null);
-    setTopFiles([]);
-    setTopSites([]);
-    setTopVersioned([]);
-    setDetail(null);
+    setSummary(null); setTopFiles([]); setTopSites([]); setTopVersioned([]); setDetail(null);
     loadScanData(scanId, scans);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId]);
 
-  // ── Auto-refresh para scans ativos ───────────────────────────────────────
   useEffect(() => {
     const activeScan = scans.find(s => s.id === scanId);
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (!activeScan || !ACTIVE.has(activeScan.status)) return;
-
     timerRef.current = setInterval(async () => {
       const fresh = await loadScans().catch(() => scans);
       await loadScanData(scanId!, fresh);
     }, REFRESH_MS);
-
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId, scans.find(s => s.id === scanId)?.status]);
 
-  // ── Ações ─────────────────────────────────────────────────────────────────
   const handleNewScan = async () => {
     setCreating(true);
     try {
@@ -239,9 +163,7 @@ export default function DashboardPage(): React.ReactElement {
       showToast('Scan iniciado com sucesso.');
     } catch (e) {
       showToast(e instanceof ApiClientError ? e.message : 'Erro ao iniciar scan.', 'bad');
-    } finally {
-      setCreating(false);
-    }
+    } finally { setCreating(false); }
   };
 
   const handleCancel = async () => {
@@ -254,9 +176,7 @@ export default function DashboardPage(): React.ReactElement {
       showToast('Scan cancelado.');
     } catch (e) {
       showToast(e instanceof ApiClientError ? e.message : 'Erro ao cancelar scan.', 'bad');
-    } finally {
-      setCancelling(false);
-    }
+    } finally { setCancelling(false); }
   };
 
   const handleRefresh = async () => {
@@ -265,259 +185,219 @@ export default function DashboardPage(): React.ReactElement {
     await loadScanData(scanId, fresh);
   };
 
-  // ── Dados derivados ───────────────────────────────────────────────────────
   const selectedScan = scans.find(s => s.id === scanId) ?? null;
   const p: ScanProgress | undefined = detail?.progress;
-  const isActive = selectedScan ? ACTIVE.has(selectedScan.status) : false;
+  const isActive    = selectedScan ? ACTIVE.has(selectedScan.status) : false;
   const isCompleted = selectedScan?.status === 'completed';
-  const pct = calcPercent(p, selectedScan?.status ?? '');
+  const pct         = calcPercent(p, selectedScan?.status ?? '');
+  const hasError    = selectedScan?.status === 'failed';
 
-  const flowIsActive = isActive;
-  const hasError = selectedScan?.status === 'failed';
+  const files  = p?.files    ?? summary?.totalFiles  ?? selectedScan?.totalFiles;
+  const bytes  = p?.bytes    ?? summary?.totalBytes  ?? selectedScan?.totalBytes;
+  const sites  = p?.doneSites  ?? summary?.totalSites  ?? selectedScan?.totalSites;
+  const drives = p?.doneDrives ?? summary?.totalDrives ?? selectedScan?.totalDrives;
 
-  const files   = p?.files   ?? summary?.totalFiles  ?? selectedScan?.totalFiles;
-  const bytes   = p?.bytes   ?? summary?.totalBytes  ?? selectedScan?.totalBytes;
-  const sites   = p?.doneSites   ?? summary?.totalSites  ?? selectedScan?.totalSites;
-  const drives  = p?.doneDrives  ?? summary?.totalDrives ?? selectedScan?.totalDrives;
+  const topExt         = summary?.topExtensions?.slice(0, 10) ?? [];
+  const maxExt         = topExt[0]?.fileCount ?? 1;
+  const topExtByBytes  = [...(summary?.topExtensions ?? [])].sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0)).slice(0, 10);
+  const maxExtBytes    = topExtByBytes[0]?.totalBytes ?? 1;
 
-  const topExt = summary?.topExtensions?.slice(0, 10) ?? [];
-  const maxExt = topExt[0]?.fileCount ?? 1;
-  const topExtByBytes = [...(summary?.topExtensions ?? [])].sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0)).slice(0, 10);
-  const maxExtBytes   = topExtByBytes[0]?.totalBytes ?? 1;
-
-  const statusLabel: Record<string, string> = {
-    pending: 'Aguardando', running: 'Em execução', completed: 'Concluído',
-    failed: 'Com falha', cancelled: 'Cancelado',
-  };
-  const statusColor: Record<string, string> = {
-    pending: C.warn, running: C.accent, completed: C.good,
-    failed: C.bad, cancelled: '#6b7280',
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  if (loading) {
-    return <div style={s.loading}>Carregando dashboard…</div>;
-  }
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh', color: 'var(--muted)' }}>Carregando dashboard…</div>;
 
   return (
-    <div style={s.page}>
-
+    <>
       {/* Toast */}
       {toast && (
-        <div style={{ ...s.toast, background: toast.kind === 'ok' ? '#f0fff4' : '#fff5f5', borderColor: toast.kind === 'ok' ? '#c6f6d5' : '#fed7d7', color: toast.kind === 'ok' ? C.good : C.bad }}>
+        <div className={`toast ${toast.kind === 'ok' ? 'pill-good' : 'pill-bad'}`}>
           {toast.msg}
         </div>
       )}
 
-      {/* ── Cabeçalho ──────────────────────────────────────────────────────── */}
-      <div style={s.topbar}>
+      {/* ── Cabeçalho ───────────────────────────────────────────────────── */}
+      <div className="page-head">
         <div>
-          <h1 style={s.title}>Dashboard</h1>
-          <p style={s.subtitle}>Visão geral do consumo e inventário</p>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-sub">Visão geral do consumo e inventário</p>
         </div>
-        <div style={s.topActions}>
-          {/* Seletor de scan */}
-          <div style={s.scanSelectWrap}>
-            <label style={s.scanSelectLabel}>Base do scan</label>
+        <div className="head-actions">
+          <div className="field" style={{ minWidth: 260 }}>
+            <label className="field-label">Base do scan</label>
             <select
-              style={s.scanSelect}
+              className="select"
               value={scanId ?? ''}
               onChange={e => setScanId(e.target.value)}
             >
               {scans.length === 0 && <option value="">Nenhum scan encontrado</option>}
               {scans.map(sc => (
                 <option key={sc.id} value={sc.id}>
-                  {sc.id.slice(0, 8)} — {statusLabel[sc.status] ?? sc.status} — {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
+                  {sc.id.slice(0, 8)} — {STATUS_LABEL[sc.status] ?? sc.status} — {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
                 </option>
               ))}
             </select>
           </div>
-          {/* Botões de ação */}
-          <div style={s.btnGroup}>
-            <button style={s.btnSecondary} onClick={handleRefresh} title="Atualizar dados">
-              ↺ Atualizar
+          <button className="btn btn-sm" onClick={handleRefresh} title="Atualizar dados">
+            <RefreshCw size={13} /> Atualizar
+          </button>
+          {isActive && (
+            <button className="btn btn-sm btn-danger" onClick={handleCancel} disabled={cancelling}>
+              <X size={13} /> {cancelling ? 'Cancelando…' : 'Cancelar scan'}
             </button>
-            {isActive && (
-              <button style={{ ...s.btnSecondary, borderColor: '#fca5a5', color: C.bad }} onClick={handleCancel} disabled={cancelling}>
-                {cancelling ? 'Cancelando…' : '✕ Cancelar scan'}
-              </button>
-            )}
-            {isCompleted && scanId && (
-              <Link to={`/inventory/${scanId}`} style={s.btnAccent}>
-                Ir para Inventário →
-              </Link>
-            )}
-            <button style={s.btnAccent} onClick={handleNewScan} disabled={creating || isActive}>
-              {creating ? 'Iniciando…' : '+ Novo Scan'}
-            </button>
-          </div>
+          )}
+          {isCompleted && scanId && (
+            <Link to={`/inventory/${scanId}`} className="btn btn-sm">
+              <ArrowRight size={13} /> Inventário
+            </Link>
+          )}
+          <button className="btn btn-sm btn-primary" onClick={handleNewScan} disabled={creating || isActive}>
+            <Plus size={13} /> {creating ? 'Iniciando…' : 'Novo Scan'}
+          </button>
         </div>
       </div>
 
-      {/* Última atualização */}
+      {/* Status bar */}
       {lastUpdated && (
-        <div style={s.lastUpdated}>
-          <span style={{ ...s.pill, background: isActive ? '#f0fff4' : '#eff6ff', color: isActive ? C.good : C.accent }}>
-            {isActive ? '● Ao vivo' : '○ Snapshot'}
+        <div className="row small muted">
+          <span className={`pill ${isActive ? 'pill-good' : 'pill-info'}`}>
+            <span className="dot" />
+            {isActive ? 'Ao vivo' : 'Snapshot'}
           </span>
           Atualizado: {lastUpdated.toLocaleTimeString('pt-BR')}
-          {isActive && <span style={{ color: C.muted }}> — atualização automática a cada 8 s</span>}
+          {isActive && <span className="faint"> — atualização automática a cada 8 s</span>}
         </div>
       )}
 
-      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
-      <div style={s.kpis}>
-        <KpiCard label="Sites" value={fmtNum(sites)}  hint={`${fmtNum(p?.totalSites ?? selectedScan?.totalSites)} total`} />
-        <KpiCard label="Drives" value={fmtNum(drives)} hint={`${fmtNum(p?.totalDrives ?? selectedScan?.totalDrives)} total`} />
-        <KpiCard label="Arquivos" value={fmtNum(files)} accent={C.text} />
-        <KpiCard label="Volume total" value={fmtBytes(bytes)} accent={C.text} />
+      {/* ── KPI Grid ─────────────────────────────────────────────────────── */}
+      <div className="kpi-grid">
+        <div className="kpi">
+          <div className="kpi-top"><span className="kpi-label">Sites</span></div>
+          <div className="kpi-value">{fmtNum(sites)}</div>
+          <div className="kpi-hint">{fmtNum(p?.totalSites ?? selectedScan?.totalSites)} total</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top"><span className="kpi-label">Drives</span></div>
+          <div className="kpi-value">{fmtNum(drives)}</div>
+          <div className="kpi-hint">{fmtNum(p?.totalDrives ?? selectedScan?.totalDrives)} total</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top"><span className="kpi-label">Arquivos</span></div>
+          <div className="kpi-value">{fmtNum(files)}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top"><span className="kpi-label">Volume total</span></div>
+          <div className="kpi-value">{fmtBytes(bytes)}</div>
+        </div>
         {p?.versioningEnabled && (
-          <KpiCard
-            label="Versões"
-            value={fmtNum(p.versionsDone)}
-            hint={`${fmtNum(p.versionsTotal)} total • ${fmtBytes(p.versionsBytes)}`}
-          />
-        )}
-        <div style={s.kpiStatus}>
-          <div style={s.kpiLabel}>Status do scan</div>
-          <div style={{ ...s.kpiValue, color: statusColor[selectedScan?.status ?? ''] ?? C.muted }}>
-            {statusLabel[selectedScan?.status ?? ''] ?? '—'}
+          <div className="kpi">
+            <div className="kpi-top"><span className="kpi-label">Versões</span></div>
+            <div className="kpi-value">{fmtNum(p.versionsDone)}</div>
+            <div className="kpi-hint">{fmtNum(p.versionsTotal)} total · {fmtBytes(p.versionsBytes)}</div>
           </div>
-          {selectedScan?.finishedAt && (
-            <div style={s.kpiHint}>Concluído {fmtDate(selectedScan.finishedAt)}</div>
-          )}
-          {selectedScan?.startedAt && !selectedScan?.finishedAt && (
-            <div style={s.kpiHint}>Iniciado {fmtDate(selectedScan.startedAt)}</div>
-          )}
+        )}
+        <div className="kpi">
+          <div className="kpi-top"><span className="kpi-label">Status do scan</span></div>
+          <div className="kpi-value" style={{
+            color: selectedScan?.status === 'completed' ? 'var(--good)'
+              : selectedScan?.status === 'running' ? 'var(--accent)'
+              : selectedScan?.status === 'failed' ? 'var(--bad)'
+              : selectedScan?.status === 'pending' ? 'var(--warn)'
+              : 'var(--faint)',
+          }}>
+            {STATUS_LABEL[selectedScan?.status ?? ''] ?? '—'}
+          </div>
+          {selectedScan?.finishedAt && <div className="kpi-hint">Concluído {fmtDate(selectedScan.finishedAt)}</div>}
+          {selectedScan?.startedAt && !selectedScan?.finishedAt && <div className="kpi-hint">Iniciado {fmtDate(selectedScan.startedAt)}</div>}
         </div>
       </div>
 
-      {/* ── Progresso do scan (apenas se ativo) ────────────────────────────── */}
+      {/* ── Progresso (scan ativo) ─────────────────────────────────────── */}
       {isActive && (
-        <div style={s.card}>
-          <div style={s.cardHead}>
+        <div className="card">
+          <div className="card-head">
             <div>
-              <div style={s.cardTitle}>Progresso da varredura</div>
-              {p?.activity && <div style={s.cardSub}>{p.activity}</div>}
+              <div className="card-title">Progresso da varredura</div>
+              {p?.activity && <div className="card-sub">{p.activity}</div>}
             </div>
-            <div style={{ ...s.pctBadge, background: pct > 80 ? '#f0fff4' : '#eff6ff' }}>
-              <span style={{ color: pct > 80 ? C.good : C.accent, fontWeight: 800 }}>{pct}%</span>
-            </div>
+            <span className={`pill ${pct > 80 ? 'pill-good' : 'pill-info'}`}>{pct}%</span>
           </div>
-
-          {/* Barra de progresso */}
-          <div style={s.progressTrack}>
-            <div style={{ ...s.progressFill, width: `${pct}%`, background: pct > 80 ? C.good : C.accent }} />
+          <div className="track" style={{ marginBottom: 'var(--gap-sm)' }}>
+            <div className="fill" style={{ width: `${pct}%`, background: pct > 80 ? 'var(--good)' : 'var(--accent)' }} />
           </div>
-
-          {/* Fluxo: Sites → Drives → Arquivos → Final */}
-          <div style={s.flow}>
-            <FlowNode
-              label="Sites"
-              value={`${fmtNum(p?.doneSites)}/${fmtNum(p?.totalSites)}`}
-              sub="Sites processados"
-              tone={flowTone(p?.doneSites, p?.totalSites, flowIsActive && String(p?.stage).includes('SITE'), hasError)}
-            />
-            <span style={s.flowArrow}>→</span>
-            <FlowNode
-              label="Drives"
-              value={`${fmtNum(p?.doneDrives)}/${fmtNum(p?.totalDrives)}`}
-              sub="Bibliotecas lidas"
-              tone={flowTone(p?.doneDrives, p?.totalDrives, flowIsActive && !String(p?.stage).includes('SITE'), hasError)}
-            />
-            <span style={s.flowArrow}>→</span>
-            <FlowNode
-              label="Arquivos"
-              value={fmtNum(p?.files)}
-              sub={fmtBytes(p?.bytes)}
-              tone={p?.files ? 'run' : 'idle'}
-            />
+          <div className="flow">
+            <FlowNode label="Sites" value={`${fmtNum(p?.doneSites)}/${fmtNum(p?.totalSites)}`} sub="Sites processados" tone={flowTone(p?.doneSites, p?.totalSites, isActive && String(p?.stage).includes('SITE'), hasError)} />
+            <div className="flow-arrow"><ArrowRight size={14} /></div>
+            <FlowNode label="Drives" value={`${fmtNum(p?.doneDrives)}/${fmtNum(p?.totalDrives)}`} sub="Bibliotecas lidas" tone={flowTone(p?.doneDrives, p?.totalDrives, isActive && !String(p?.stage).includes('SITE'), hasError)} />
+            <div className="flow-arrow"><ArrowRight size={14} /></div>
+            <FlowNode label="Arquivos" value={fmtNum(p?.files)} sub={fmtBytes(p?.bytes)} tone={p?.files ? 'run' : 'idle'} />
             {p?.versioningEnabled && (
               <>
-                <span style={s.flowArrow}>→</span>
-                <FlowNode
-                  label="Versões"
-                  value={`${fmtNum(p.versionsDone)}/${fmtNum(p.versionsTotal)}`}
-                  sub={fmtBytes(p.versionsBytes)}
-                  tone={p.versionsTotal ? (p.versionsDone === p.versionsTotal ? 'done' : 'run') : 'idle'}
-                />
+                <div className="flow-arrow"><ArrowRight size={14} /></div>
+                <FlowNode label="Versões" value={`${fmtNum(p.versionsDone)}/${fmtNum(p.versionsTotal)}`} sub={fmtBytes(p.versionsBytes)} tone={p.versionsTotal ? (p.versionsDone === p.versionsTotal ? 'done' : 'run') : 'idle'} />
               </>
             )}
-            <span style={s.flowArrow}>→</span>
-            <FlowNode
-              label="Final"
-              value={isCompleted ? '✓' : '…'}
-              sub={isCompleted ? 'Base pronta' : 'Aguardando'}
-              tone={isCompleted ? 'done' : 'idle'}
-            />
+            <div className="flow-arrow"><ArrowRight size={14} /></div>
+            <FlowNode label="Final" value={isCompleted ? '✓' : '…'} sub={isCompleted ? 'Base pronta' : 'Aguardando'} tone={isCompleted ? 'done' : 'idle'} />
           </div>
         </div>
       )}
 
-      {/* ── Linha inferior: Top Extensões + Top Arquivos ────────────────────── */}
+      {/* ── Top Extensões + Top Arquivos ─────────────────────────────────── */}
       {(topExt.length > 0 || topFiles.length > 0) && (
-        <div style={s.twoCol}>
-
-          {/* Top extensões */}
+        <div className="two-col">
           {topExt.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
+            <div className="card">
+              <div className="card-head">
                 <div>
-                  <div style={s.cardTitle}>Extensões mais frequentes</div>
-                  <div style={s.cardSub}>Por quantidade de arquivos</div>
+                  <div className="card-title">Extensões mais frequentes</div>
+                  <div className="card-sub">Por quantidade de arquivos</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {topExt.map(ext => {
-                  const pctExt = Math.round((ext.fileCount / maxExt) * 100);
-                  return (
-                    <div key={ext.extension}>
-                      <div style={s.extRow}>
-                        <span style={s.extName}>{ext.extension || '(sem extensão)'}</span>
-                        <span style={s.extCount}>{fmtNum(ext.fileCount)} arq.</span>
-                        <span style={s.extBytes}>{fmtBytes(ext.totalBytes)}</span>
-                      </div>
-                      <div style={s.extTrack}>
-                        <div style={{ ...s.extFill, width: `${pctExt}%` }} />
-                      </div>
+              <div className="stack" style={{ gap: 8 }}>
+                {topExt.map(ext => (
+                  <div key={ext.extension}>
+                    <div className="row" style={{ marginBottom: 3 }}>
+                      <span className="mono small" style={{ minWidth: 60, color: 'var(--text)' }}>{ext.extension || '(sem extensão)'}</span>
+                      <span className="spacer" />
+                      <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
+                      <span className="small muted" style={{ minWidth: 72, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
                     </div>
-                  );
-                })}
+                    <div className="bar-track">
+                      <div className="bar-fill" style={{ width: `${Math.round((ext.fileCount / maxExt) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Top maiores arquivos */}
           {topFiles.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
+            <div className="card">
+              <div className="card-head">
                 <div>
-                  <div style={s.cardTitle}>Top 10 maiores arquivos</div>
-                  <div style={s.cardSub}>Clique no nome para abrir no SharePoint</div>
+                  <div className="card-title">Top 10 maiores arquivos</div>
+                  <div className="card-sub">Clique no nome para abrir no SharePoint</div>
                 </div>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={s.table}>
+              <div className="tbl-wrap">
+                <table className="tbl">
                   <thead>
                     <tr>
-                      <th style={s.th}>#</th>
-                      <th style={s.th}>Nome</th>
-                      <th style={s.th}>Ext.</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Tamanho</th>
+                      <th>#</th>
+                      <th>Nome</th>
+                      <th>Ext.</th>
+                      <th className="td-r">Tamanho</th>
                     </tr>
                   </thead>
                   <tbody>
                     {topFiles.map((f, i) => (
-                      <tr key={f.id ?? i} style={s.tr}>
-                        <td style={{ ...s.td, color: C.muted, width: 28 }}>{i + 1}</td>
-                        <td style={{ ...s.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <tr key={f.id ?? i}>
+                        <td className="td-mute" style={{ width: 28 }}>{i + 1}</td>
+                        <td className="td-ellipsis">
                           {f.webUrl
-                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a>
-                            : <span style={{ color: C.text }}>{f.name}</span>
-                          }
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
+                            : f.name}
                         </td>
-                        <td style={{ ...s.td, color: C.muted }}>{f.extension || '—'}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.totalBytes)}</td>
+                        <td className="td-mute td-mono">{f.extension || '—'}</td>
+                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -525,40 +405,37 @@ export default function DashboardPage(): React.ReactElement {
               </div>
               {isCompleted && scanId && (
                 <div style={{ marginTop: 10, textAlign: 'right' }}>
-                  <Link to={`/inventory/${scanId}`} style={s.viewAll}>Ver inventário completo →</Link>
+                  <Link to={`/inventory/${scanId}`} className="td-link small">Ver inventário completo →</Link>
                 </div>
               )}
             </div>
           )}
-
         </div>
       )}
 
-      {/* ── Gráficos adicionais ─────────────────────────────────────────────── */}
-
-      {/* Top 20 sites por utilização */}
+      {/* ── Top 20 sites por utilização ───────────────────────────────────── */}
       {topSites.length > 0 && (
-        <div style={s.card}>
-          <div style={s.cardHead}>
+        <div className="card">
+          <div className="card-head">
             <div>
-              <div style={s.cardTitle}>Top 20 sites por utilização</div>
-              <div style={s.cardSub}>Volume total de arquivos (scan selecionado)</div>
+              <div className="card-title">Top 20 sites por utilização</div>
+              <div className="card-sub">Volume total de arquivos (scan selecionado)</div>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div className="stack" style={{ gap: 7 }}>
             {topSites.map((site, i) => {
-              const maxBytes = topSites[0]?.totalBytes ?? 1;
-              const pct = Math.round(((site.totalBytes ?? 0) / maxBytes) * 100);
+              const maxB = topSites[0]?.totalBytes ?? 1;
+              const pct = Math.round(((site.totalBytes ?? 0) / maxB) * 100);
               return (
                 <div key={site.siteId}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <span style={{ fontSize: 10, color: C.muted, width: 18, textAlign: 'right' }}>{i + 1}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
-                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{fmtNum(site.totalFiles)} arq.</span>
-                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap', minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
+                  <div className="row" style={{ marginBottom: 2 }}>
+                    <span className="small muted" style={{ width: 18, textAlign: 'right' }}>{i + 1}</span>
+                    <span className="small" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
+                    <span className="small muted">{fmtNum(site.totalFiles)} arq.</span>
+                    <span className="small muted" style={{ minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
                   </div>
-                  <div style={{ height: 5, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden', marginLeft: 24 }}>
-                    <div style={{ height: '100%', borderRadius: 2, background: C.accent, width: `${pct}%`, transition: 'width .3s ease' }} />
+                  <div className="bar-track" style={{ marginLeft: 24 }}>
+                    <div className="bar-fill" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );
@@ -567,69 +444,66 @@ export default function DashboardPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Top 10 extensões por espaço + Top 20 arquivos com mais versões */}
+      {/* ── Top extensões por espaço + Top versionados ────────────────────── */}
       {(topExtByBytes.length > 0 || topVersioned.length > 0) && (
-        <div style={s.twoCol}>
-
+        <div className="two-col">
           {topExtByBytes.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
+            <div className="card">
+              <div className="card-head">
                 <div>
-                  <div style={s.cardTitle}>Top 10 extensões por espaço usado</div>
-                  <div style={s.cardSub}>Volume total (arquivos + versões)</div>
+                  <div className="card-title">Top 10 extensões por espaço usado</div>
+                  <div className="card-sub">Volume total (arquivos + versões)</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {topExtByBytes.map(ext => {
-                  const pctExt = Math.round(((ext.totalBytes ?? 0) / maxExtBytes) * 100);
-                  return (
-                    <div key={ext.extension}>
-                      <div style={s.extRow}>
-                        <span style={s.extName}>{ext.extension || '(sem extensão)'}</span>
-                        <span style={s.extCount}>{fmtNum(ext.fileCount)} arq.</span>
-                        <span style={s.extBytes}>{fmtBytes(ext.totalBytes)}</span>
-                      </div>
-                      <div style={s.extTrack}>
-                        <div style={{ ...s.extFill, width: `${pctExt}%`, background: '#2f855a' }} />
-                      </div>
+              <div className="stack" style={{ gap: 8 }}>
+                {topExtByBytes.map(ext => (
+                  <div key={ext.extension}>
+                    <div className="row" style={{ marginBottom: 3 }}>
+                      <span className="mono small" style={{ minWidth: 60 }}>{ext.extension || '(sem extensão)'}</span>
+                      <span className="spacer" />
+                      <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
+                      <span className="small muted" style={{ minWidth: 72, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
                     </div>
-                  );
-                })}
+                    <div className="bar-track">
+                      <div className="bar-fill" style={{ width: `${Math.round(((ext.totalBytes ?? 0) / maxExtBytes) * 100)}%`, background: 'var(--good)' }} />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {topVersioned.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
+            <div className="card">
+              <div className="card-head">
                 <div>
-                  <div style={s.cardTitle}>Top 20 arquivos com mais versões</div>
-                  <div style={s.cardSub}>Últimos 30 dias (scan selecionado)</div>
+                  <div className="card-title">Top 20 arquivos com mais versões</div>
+                  <div className="card-sub">Últimos 30 dias (scan selecionado)</div>
                 </div>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={s.table}>
+              <div className="tbl-wrap">
+                <table className="tbl">
                   <thead>
                     <tr>
-                      <th style={s.th}>#</th>
-                      <th style={s.th}>Nome</th>
-                      <th style={s.th}>Ext.</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Versões</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Total</th>
+                      <th>#</th>
+                      <th>Nome</th>
+                      <th>Ext.</th>
+                      <th className="td-r">Versões</th>
+                      <th className="td-r">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {topVersioned.map((f, i) => (
-                      <tr key={f.id ?? i} style={s.tr}>
-                        <td style={{ ...s.td, color: C.muted, width: 24 }}>{i + 1}</td>
-                        <td style={{ ...s.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <tr key={f.id ?? i}>
+                        <td className="td-mute" style={{ width: 24 }}>{i + 1}</td>
+                        <td className="td-ellipsis">
                           {f.webUrl
-                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a>
-                            : <span style={{ color: C.text }}>{f.name}</span>}
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
+                            : f.name}
                         </td>
-                        <td style={{ ...s.td, color: C.muted }}>{f.extension || '—'}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(f.versionCount)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.totalBytes)}</td>
+                        <td className="td-mute td-mono">{f.extension || '—'}</td>
+                        <td className="td-r">{fmtNum(f.versionCount)}</td>
+                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -637,113 +511,19 @@ export default function DashboardPage(): React.ReactElement {
               </div>
             </div>
           )}
-
         </div>
       )}
 
       {/* Estado vazio */}
       {scans.length === 0 && !loading && (
-        <div style={s.empty}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem 0', textAlign: 'center' }}>
           <p style={{ fontWeight: 700, marginBottom: 8 }}>Nenhum scan encontrado.</p>
-          <p style={{ color: C.muted, marginBottom: 16 }}>Inicie a primeira varredura do tenant SharePoint.</p>
-          <button style={s.btnAccent} onClick={handleNewScan} disabled={creating}>
-            {creating ? 'Iniciando…' : '+ Iniciar Primeiro Scan'}
+          <p className="muted small" style={{ marginBottom: 16 }}>Inicie a primeira varredura do tenant SharePoint.</p>
+          <button className="btn btn-primary" onClick={handleNewScan} disabled={creating}>
+            <Plus size={14} /> {creating ? 'Iniciando…' : 'Iniciar Primeiro Scan'}
           </button>
         </div>
       )}
-
-    </div>
+    </>
   );
 }
-
-// ─── Design tokens (espelho do styles.css legado) ─────────────────────────────
-
-const C = {
-  bg:     '#eef1f5',
-  panel:  '#ffffff',
-  border: '#c8ced8',
-  accent: '#2b6cb0',
-  text:   '#1a202c',
-  muted:  '#4a5568',
-  good:   '#276749',
-  warn:   '#c05621',
-  bad:    '#c53030',
-};
-
-const s: Record<string, React.CSSProperties> = {
-  page:    { display: 'flex', flexDirection: 'column', gap: 14, fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", fontSize: 13, color: C.text },
-  loading: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh', color: C.muted },
-
-  /* Topbar */
-  topbar:      { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${C.border}`, paddingBottom: 14, flexWrap: 'wrap' },
-  title:       { fontSize: 17, fontWeight: 700, letterSpacing: '.01em', margin: 0 },
-  subtitle:    { color: C.muted, fontSize: 11, margin: '3px 0 0', letterSpacing: '.02em' },
-  topActions:  { display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' },
-
-  /* Scan selector */
-  scanSelectWrap:  { display: 'flex', flexDirection: 'column', gap: 3 },
-  scanSelectLabel: { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em' },
-  scanSelect:      { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12, background: '#fff', color: C.text, minWidth: 280, cursor: 'pointer' },
-
-  /* Botões */
-  btnGroup:     { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-  btnSecondary: { padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 4, background: '#f7f9fb', color: C.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', fontFamily: 'inherit' },
-  btnAccent:    { padding: '6px 12px', border: 'none', borderRadius: 4, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'none', display: 'inline-block', fontFamily: 'inherit' },
-
-  /* Status */
-  lastUpdated: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: C.muted },
-  pill:        { padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, border: '1px solid transparent' },
-
-  /* KPIs */
-  kpis:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 },
-  kpi:        { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  kpiStatus:  { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  kpiLabel:   { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 },
-  kpiValue:   { fontSize: 22, fontWeight: 800, color: C.accent, lineHeight: 1.2 },
-  kpiHint:    { fontSize: 10, color: C.muted, marginTop: 3 },
-
-  /* Cards */
-  card:     { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  cardHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10, borderBottom: `1px solid #e8ecf1`, paddingBottom: 8 },
-  cardTitle:{ fontWeight: 700, fontSize: 13, letterSpacing: '.01em' },
-  cardSub:  { color: C.muted, fontSize: 11, marginTop: 3 },
-
-  /* Progresso */
-  pctBadge:     { padding: '4px 12px', borderRadius: 20, border: `1px solid ${C.border}` },
-  progressTrack:{ height: 8, borderRadius: 2, background: '#e2e8f0', border: `1px solid ${C.border}`, overflow: 'hidden', marginBottom: 12 },
-  progressFill: { height: '100%', borderRadius: 2, transition: 'width .5s ease' },
-
-  /* Flow */
-  flow:      { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  flowArrow: { color: C.muted, fontSize: 18, userSelect: 'none' },
-  flowNode:  { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 4, border: `1px solid ${C.border}`, flex: '1 1 120px', minWidth: 100 },
-  flowDot:   { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
-  flowLabel: { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' },
-  flowValue: { fontSize: 16, fontWeight: 800, lineHeight: 1.2 },
-  flowSub:   { fontSize: 10, color: C.muted },
-
-  /* Layout 2 colunas */
-  twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
-
-  /* Top extensões */
-  extRow:   { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 },
-  extName:  { fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: C.text, minWidth: 60 },
-  extCount: { fontSize: 11, color: C.muted, marginLeft: 'auto', whiteSpace: 'nowrap' },
-  extBytes: { fontSize: 11, color: C.muted, whiteSpace: 'nowrap', minWidth: 70, textAlign: 'right' },
-  extTrack: { height: 5, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden', marginBottom: 2 },
-  extFill:  { height: '100%', borderRadius: 2, background: C.accent, transition: 'width .3s ease' },
-
-  /* Tabela top arquivos */
-  table:    { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th:       { padding: '6px 8px', background: '#f7f9fb', fontWeight: 700, color: C.muted, textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' },
-  tr:       { borderBottom: `1px solid #f1f5f9` },
-  td:       { padding: '6px 8px', color: C.text },
-  fileLink: { color: C.accent, textDecoration: 'none' },
-  viewAll:  { color: C.accent, textDecoration: 'none', fontSize: 12, fontWeight: 600 },
-
-  /* Toast */
-  toast:  { position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '10px 16px', borderRadius: 6, border: '1px solid', fontSize: 13, fontWeight: 600, boxShadow: '0 4px 12px rgba(0,0,0,.12)', maxWidth: 360 },
-
-  /* Empty state */
-  empty:  { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem 0', textAlign: 'center' },
-};

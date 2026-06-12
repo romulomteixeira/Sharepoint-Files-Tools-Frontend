@@ -1,57 +1,42 @@
-/**
- * ScansPage.tsx - Criação de scans completos ou por seleção de sites.
- */
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Search, Play, X } from 'lucide-react';
 import { cancelScan, createScan, listScans, searchSites } from '../api/scans.api';
 import type { ScanMode, SiteSearchResult } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import type { Scan } from '../types';
 
-function formatBytes(bytes: number | undefined): string {
+function fmtBytes(bytes: number | undefined): string {
   if (!bytes) return '—';
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), sizes.length - 1);
   return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${sizes[index]}`;
 }
 
-const statusLabels: Record<Scan['status'], string> = {
-  pending: 'Na fila',
-  running: 'Em execução',
-  completed: 'Concluído',
-  failed: 'Erro',
-  cancelled: 'Cancelado',
+const STATUS_LABELS: Record<Scan['status'], string> = {
+  pending: 'Na fila', running: 'Em execução', completed: 'Concluído',
+  failed: 'Erro', cancelled: 'Cancelado',
 };
 
-function StatusBadge({ status }: { status: Scan['status'] }): React.ReactElement {
-  const colors: Record<Scan['status'], React.CSSProperties> = {
-    completed: { background: '#d1fae5', color: '#065f46' },
-    running: { background: '#dbeafe', color: '#1e40af' },
-    pending: { background: '#fef3c7', color: '#92400e' },
-    failed: { background: '#fee2e2', color: '#991b1b' },
-    cancelled: { background: '#f3f4f6', color: '#374151' },
-  };
-  return <span style={{ ...styles.badge, ...colors[status] }}>{statusLabels[status]}</span>;
+function StatusPill({ status }: { status: Scan['status'] }) {
+  const cls = status === 'completed' ? 'pill-good' : status === 'running' ? 'pill-info'
+    : status === 'pending' ? 'pill-warn' : status === 'failed' ? 'pill-bad' : 'pill-mute';
+  return <span className={`pill ${cls}`}><span className="dot" />{STATUS_LABELS[status]}</span>;
 }
 
 function scanType(scan: Scan): string {
-  if (scan.request?.allSites === true) return 'Completo';
+  if (scan.request?.allSites) return 'Completo';
   const count = scan.request?.sites?.length;
   if (count) return `Parcial (${count} site${count === 1 ? '' : 's'})`;
   return '—';
 }
 
 function scanMode(scan: Scan): string {
-  const quickMode = scan.request?.options?.quickMode;
-  if (!quickMode) return 'Completo';
-  if (quickMode.maxSites === 10 && quickMode.maxDrivesPerSite === 5 && quickMode.maxItemsPerDrive === 2000) {
-    return 'Rápido';
-  }
-  if (quickMode.maxSites === 30 && quickMode.maxDrivesPerSite === 8 && quickMode.maxItemsPerDrive === 4000) {
-    return 'Estimativa';
-  }
+  const q = scan.request?.options?.quickMode;
+  if (!q) return 'Completo';
+  if (q.maxSites === 10) return 'Rápido';
+  if (q.maxSites === 30) return 'Estimativa';
   return 'Personalizado';
 }
 
@@ -76,345 +61,254 @@ export default function ScansPage(): React.ReactElement {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 4000);
-    return () => window.clearTimeout(timer);
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
   }, [toast]);
 
-  const selectedIds = useMemo(() => new Set(selected.map((site) => site.id)), [selected]);
-  const allResultsSelected = results.length > 0 && results.every((site) => selectedIds.has(site.id));
+  const selectedIds = useMemo(() => new Set(selected.map(s => s.id)), [selected]);
+  const allResultsSelected = results.length > 0 && results.every(s => selectedIds.has(s.id));
   const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
   const createDisabled = creating || (scope === 'selected' && selected.length === 0);
-  const visibleResults = useMemo(
-    () => results.slice((page - 1) * pageSize, page * pageSize),
-    [page, pageSize, results],
-  );
+  const visibleResults = useMemo(() => results.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, results]);
 
-  async function handleLoadSites(): Promise<void> {
-    setSearching(true);
-    setSearchError(null);
+  async function handleLoadSites() {
+    setSearching(true); setSearchError(null);
     try {
       const sites = await searchSites(query, siteLimit);
-      setResults(sites);
-      setPage(1);
+      setResults(sites); setPage(1);
     } catch (err) {
-      setResults([]);
-      setPage(1);
+      setResults([]); setPage(1);
       setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
-    } finally {
-      setSearching(false);
-    }
+    } finally { setSearching(false); }
   }
 
-  function toggleSite(site: SiteSearchResult): void {
-    setSelected((current) => current.some((item) => item.id === site.id)
-      ? current.filter((item) => item.id !== site.id)
-      : [...current, site]);
+  function toggleSite(site: SiteSearchResult) {
+    setSelected(cur => cur.some(i => i.id === site.id) ? cur.filter(i => i.id !== site.id) : [...cur, site]);
   }
 
-  function toggleAll(): void {
+  function toggleAll() {
     if (allResultsSelected) {
-      const resultIds = new Set(results.map((site) => site.id));
-      setSelected((current) => current.filter((site) => !resultIds.has(site.id)));
+      const rids = new Set(results.map(s => s.id));
+      setSelected(cur => cur.filter(s => !rids.has(s.id)));
       return;
     }
-    setSelected((current) => {
-      const byId = new Map(current.map((site) => [site.id, site]));
-      results.forEach((site) => byId.set(site.id, site));
-      return Array.from(byId.values());
+    setSelected(cur => {
+      const m = new Map(cur.map(s => [s.id, s]));
+      results.forEach(s => m.set(s.id, s));
+      return Array.from(m.values());
     });
   }
 
-  async function handleCreateScan(): Promise<void> {
-    if (scope === 'selected' && selected.length === 0) {
-      setToast({ text: 'Selecione ao menos um site para usar o escopo selecionado.', kind: 'error' });
-      return;
-    }
+  async function handleCreateScan() {
+    if (scope === 'selected' && selected.length === 0) { setToast({ text: 'Selecione ao menos um site.', kind: 'error' }); return; }
     setCreating(true);
     try {
-      const scan = await createScan({
-        allSites: scope === 'all',
-        siteIds: scope === 'selected' ? selected.map((site) => site.id) : [],
-        siteSearch: scanSearch,
-        maxSites: scanMaxSites,
-        mode,
-        enableVersioning,
-      });
-      setToast({ text: `Scan ${scan.id.slice(0, 8)} iniciado com sucesso.`, kind: 'success' });
+      const scan = await createScan({ allSites: scope === 'all', siteIds: scope === 'selected' ? selected.map(s => s.id) : [], siteSearch: scanSearch, maxSites: scanMaxSites, mode, enableVersioning });
+      setToast({ text: `Scan ${scan.id.slice(0, 8)} iniciado.`, kind: 'success' });
       setSelected([]);
       refetch();
     } catch (err) {
-      const text = err instanceof ApiClientError ? err.message : 'Erro ao iniciar scan.';
-      setToast({ text, kind: 'error' });
-    } finally {
-      setCreating(false);
-    }
+      setToast({ text: err instanceof ApiClientError ? err.message : 'Erro ao iniciar scan.', kind: 'error' });
+    } finally { setCreating(false); }
   }
 
-  async function handleCancelScan(scanId: string): Promise<void> {
+  async function handleCancelScan(scanId: string) {
     setCancellingScanId(scanId);
     try {
       await cancelScan(scanId);
-      setToast({ text: `Cancelamento solicitado para o scan ${scanId.slice(0, 8)}.`, kind: 'success' });
+      setToast({ text: `Cancelamento solicitado para ${scanId.slice(0, 8)}.`, kind: 'success' });
       await refetch();
     } catch (err) {
-      const text = err instanceof ApiClientError ? err.message : 'Erro ao cancelar scan.';
-      setToast({ text, kind: 'error' });
-    } finally {
-      setCancellingScanId(null);
-    }
+      setToast({ text: err instanceof ApiClientError ? err.message : 'Erro ao cancelar.', kind: 'error' });
+    } finally { setCancellingScanId(null); }
   }
 
   return (
-    <div style={styles.page}>
+    <>
       {toast && (
-        <div role="status" style={{ ...styles.toast, ...(toast.kind === 'success' ? styles.toastSuccess : styles.toastError) }}>
-          {toast.text}
-        </div>
+        <div className={`toast ${toast.kind === 'success' ? 'pill-good' : 'pill-bad'}`}>{toast.text}</div>
       )}
 
-      <div style={styles.header}>
+      <div className="page-head">
         <div>
-          <h1 style={styles.title}>Realizar Scans</h1>
-          <p style={styles.subtitle}>Inicie um inventário completo ou escolha sites específicos.</p>
+          <h1 className="page-title">Realizar Scans</h1>
+          <p className="page-sub">Inicie um inventário completo ou escolha sites específicos.</p>
         </div>
       </div>
 
-      <section style={styles.panel}>
-        <h2 style={styles.panelTitle}>Iniciar novo scan</h2>
-        <div style={styles.scanOptionsGrid}>
+      {/* ── Painel novo scan ──────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-head">
           <div>
-            <label htmlFor="scan-scope" style={styles.label}>Escopo da varredura</label>
-            <select
-              id="scan-scope"
-              value={scope}
-              onChange={(event) => setScope(event.target.value as 'selected' | 'all')}
-              style={styles.input}
-            >
-              <option value="all">Todos os sites</option>
-              <option value="selected">Sites selecionados na lista</option>
+            <div className="card-title">Iniciar novo scan</div>
+          </div>
+        </div>
+
+        <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--gap)' }}>
+          <div className="field" style={{ flex: '1 1 220px' }}>
+            <label className="field-label" htmlFor="scan-scope">Escopo da varredura</label>
+            <select id="scan-scope" className="select" value={scope} onChange={e => setScope(e.target.value as 'selected' | 'all')}>
+              <option value="all">Tenant completo (todos os sites)</option>
+              <option value="selected">Sites selecionados</option>
             </select>
           </div>
-          <div>
-            <label htmlFor="scan-mode" style={styles.label}>Modo</label>
-            <select
-              id="scan-mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as ScanMode)}
-              style={styles.input}
-            >
-              <option value="full">Completo</option>
-              <option value="fast">Rápido</option>
-              <option value="estimate">Estimativa</option>
+          <div className="field" style={{ flex: '1 1 180px' }}>
+            <label className="field-label" htmlFor="scan-mode">Modo</label>
+            <select id="scan-mode" className="select" value={mode} onChange={e => setMode(e.target.value as ScanMode)}>
+              <option value="full">Completo (sem limites)</option>
+              <option value="fast">Rápido (amostra)</option>
+              <option value="estimate">Estimativa ampliada</option>
             </select>
           </div>
         </div>
-        <div style={styles.modeHelp}>
-          {mode === 'full' && 'Sem limites adicionais por biblioteca ou arquivo.'}
-          {mode === 'fast' && 'Amostra rápida: até 10 sites, 5 bibliotecas por site e 2.000 itens por biblioteca.'}
+
+        <div className="info-box" style={{ marginTop: 'var(--gap-sm)' }}>
+          {mode === 'full'     && 'Sem limites adicionais por biblioteca ou arquivo.'}
+          {mode === 'fast'     && 'Amostra rápida: até 10 sites, 5 bibliotecas por site e 2.000 itens por biblioteca.'}
           {mode === 'estimate' && 'Estimativa ampliada: até 30 sites, 8 bibliotecas por site e 4.000 itens por biblioteca.'}
         </div>
 
         {scope === 'all' && (
-          <div style={styles.allSitesGrid}>
-            <div>
-              <label htmlFor="scan-site-search" style={styles.label}>Busca usada na varredura</label>
-              <input
-                id="scan-site-search"
-                value={scanSearch}
-                onChange={(event) => setScanSearch(event.target.value)}
-                placeholder="* ou palavra-chave"
-                style={styles.input}
-              />
+          <div className="row" style={{ marginTop: 'var(--gap)', flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: '1 1 240px' }}>
+              <label className="field-label" htmlFor="scan-site-search">Busca usada na varredura</label>
+              <input id="scan-site-search" className="input" value={scanSearch} onChange={e => setScanSearch(e.target.value)} placeholder="* ou palavra-chave" />
             </div>
-            <div>
-              <label htmlFor="scan-max-sites" style={styles.label}>Limite de sites</label>
-              <input
-                id="scan-max-sites"
-                type="number"
-                min={1}
-                max={20000}
-                value={scanMaxSites}
-                onChange={(event) => setScanMaxSites(Math.max(1, Math.min(20000, Number(event.target.value) || 1)))}
-                style={styles.input}
-              />
+            <div className="field" style={{ flex: '0 0 180px' }}>
+              <label className="field-label" htmlFor="scan-max-sites">Limite de sites</label>
+              <input id="scan-max-sites" className="input" type="number" min={1} max={20000} value={scanMaxSites} onChange={e => setScanMaxSites(Math.max(1, Math.min(20000, Number(e.target.value) || 1)))} />
             </div>
           </div>
         )}
 
-        <h3 style={styles.subsectionTitle}>Localizar e selecionar sites</h3>
-        <div style={styles.searchGrid}>
-          <div>
-            <label htmlFor="site-search" style={styles.label}>Palavra-chave, nome ou URL</label>
-            <input
-              id="site-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="* ou marketing ou https://tenant/sites/marketing"
-              style={styles.input}
-            />
+        <div style={{ borderTop: '1px solid var(--border-soft)', margin: 'var(--gap) 0 var(--gap-sm)', paddingTop: 'var(--gap)' }}>
+          <div className="card-title" style={{ marginBottom: 'var(--gap-sm)' }}>Localizar e selecionar sites</div>
+          <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="field" style={{ flex: '1 1 260px' }}>
+              <label className="field-label" htmlFor="site-search">Palavra-chave, nome ou URL</label>
+              <input id="site-search" className="input" value={query} onChange={e => setQuery(e.target.value)} placeholder="* ou marketing ou https://…" />
+            </div>
+            <div className="field" style={{ flex: '0 0 160px' }}>
+              <label className="field-label" htmlFor="site-limit">Quantidade a listar</label>
+              <input id="site-limit" className="input" type="number" min={1} max={999} value={siteLimit} onChange={e => setSiteLimit(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
+            </div>
+            <button type="button" className="btn" onClick={handleLoadSites} disabled={searching}>
+              <Search size={14} /> {searching ? 'Carregando…' : 'Buscar'}
+            </button>
           </div>
-          <div>
-            <label htmlFor="site-limit" style={styles.label}>Quantidade a listar</label>
-            <input
-              id="site-limit"
-              type="number"
-              min={1}
-              max={999}
-              value={siteLimit}
-              onChange={(event) => setSiteLimit(Math.max(1, Math.min(999, Number(event.target.value) || 1)))}
-              style={styles.input}
-            />
-          </div>
-          <button type="button" onClick={handleLoadSites} disabled={searching} style={styles.loadButton}>
-            {searching ? 'Carregando...' : 'Carregar sites'}
-          </button>
         </div>
-        <div style={styles.helper}>
-          {results.length > 0
-            ? `${results.length} site(s) carregado(s); ${selected.length} selecionado(s)`
-            : 'Informe a busca e a quantidade desejada. A listagem não é carregada automaticamente.'}
+
+        {searchError && <div className="pill-bad" style={{ padding: '8px 12px', borderRadius: 'var(--r-sm)', marginBottom: 'var(--gap-sm)' }}>{searchError}</div>}
+
+        <div className="small muted" style={{ marginBottom: 'var(--gap-sm)' }}>
+          {results.length > 0 ? `${results.length} site(s) carregado(s); ${selected.length} selecionado(s)` : 'Informe a busca acima para carregar sites.'}
         </div>
-        {searchError && <div role="alert" style={styles.error}>{searchError}</div>}
 
         {results.length > 0 && (
           <>
-            <div style={styles.selectionActions}>
-              <button type="button" onClick={toggleAll} style={styles.secondaryButton}>
-                {allResultsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
-              </button>
-              <button type="button" onClick={() => setSelected([])} disabled={selected.length === 0} style={styles.secondaryButton}>
-                Limpar seleção
-              </button>
+            <div className="row" style={{ marginBottom: 8 }}>
+              <button type="button" className="btn btn-sm" onClick={toggleAll}>{allResultsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSelected([])} disabled={selected.length === 0}>Limpar seleção</button>
             </div>
-            <div style={styles.siteList}>
-              {visibleResults.map((site) => (
-                <label key={site.id} style={styles.siteRow}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(site.id)}
-                    onChange={() => toggleSite(site)}
-                  />
+            <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border-soft)', borderRadius: 'var(--r-sm)', marginBottom: 'var(--gap-sm)' }}>
+              {visibleResults.map(site => (
+                <label key={site.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selectedIds.has(site.id)} onChange={() => toggleSite(site)} style={{ marginTop: 2, accentColor: 'var(--accent)' }} />
                   <span>
-                    <strong>{site.displayName || site.webUrl}</strong>
-                    <small style={styles.siteUrl}>{site.webUrl}</small>
+                    <strong className="small">{site.displayName || site.webUrl}</strong>
+                    <span className="small muted" style={{ display: 'block', marginTop: 1 }}>{site.webUrl}</span>
                   </span>
                 </label>
               ))}
             </div>
-            <div style={styles.pager}>
-              <span style={styles.helper}>Página {page} de {totalPages}</span>
-              <div style={styles.pagerActions}>
-                <label htmlFor="site-page-size" style={styles.pagerLabel}>Itens/página</label>
-                <select
-                  id="site-page-size"
-                  value={pageSize}
-                  onChange={event => {
-                    setPageSize(Number(event.target.value));
-                    setPage(1);
-                  }}
-                  style={styles.pageSelect}
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
+            <div className="row" style={{ marginBottom: 'var(--gap-sm)' }}>
+              <span className="small muted">Página {page} de {totalPages}</span>
+              <span className="spacer" />
+              <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <label className="field-label" style={{ margin: 0 }}>Itens/pág.</label>
+                <select className="select" style={{ width: 80 }} value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                  {[10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
-                <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1} style={styles.secondaryButton}>
-                  Anterior
-                </button>
-                <button type="button" onClick={() => setPage(current => Math.min(totalPages, current + 1))} disabled={page >= totalPages} style={styles.secondaryButton}>
-                  Próxima
-                </button>
               </div>
+              <button type="button" className="btn btn-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>Anterior</button>
+              <button type="button" className="btn btn-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Próxima</button>
             </div>
           </>
         )}
 
         {selected.length > 0 && (
-          <div style={styles.chips} aria-label="Sites selecionados">
-            {selected.slice(0, 5).map((site) => (
-              <button key={site.id} type="button" onClick={() => toggleSite(site)} style={styles.chip} title="Remover da seleção">
-                {site.displayName || site.webUrl} ×
+          <div className="row" style={{ flexWrap: 'wrap', marginBottom: 'var(--gap-sm)' }}>
+            {selected.slice(0, 5).map(site => (
+              <button key={site.id} type="button" className="pill pill-info" onClick={() => toggleSite(site)} style={{ cursor: 'pointer' }}>
+                {site.displayName || site.webUrl} <X size={10} />
               </button>
             ))}
-            {selected.length > 5 && <span style={styles.moreChip}>+{selected.length - 5} mais</span>}
+            {selected.length > 5 && <span className="pill pill-mute">+{selected.length - 5} mais</span>}
           </div>
         )}
 
-        <label style={styles.toggleRow}>
-          <input
-            type="checkbox"
-            checked={enableVersioning}
-            onChange={(event) => setEnableVersioning(event.target.checked)}
-          />
+        <label className="check-row" style={{ marginBottom: 'var(--gap)' }}>
+          <input type="checkbox" checked={enableVersioning} onChange={e => setEnableVersioning(e.target.checked)} />
           <span>
             <strong>Solicitar versionamento automático</strong>
-            <small style={styles.toggleHelp}>A execução depende da política global configurada no backend homologado.</small>
+            <span className="small muted" style={{ display: 'block', marginTop: 2 }}>A execução depende da política global configurada no backend.</span>
           </span>
         </label>
 
-        <button
-          type="button"
-          onClick={handleCreateScan}
-          disabled={createDisabled}
-          style={{ ...styles.primaryButton, ...(createDisabled ? styles.disabledButton : {}) }}
-        >
-          {creating
-            ? 'Iniciando...'
-            : scope === 'selected'
-              ? `Scan dos sites selecionados (${selected.length})`
-              : 'Iniciar varredura'}
+        <button type="button" className="btn btn-primary" onClick={handleCreateScan} disabled={createDisabled}>
+          <Play size={14} /> {creating ? 'Iniciando…' : scope === 'selected' ? `Varrer ${selected.length} site(s) selecionado(s)` : 'Iniciar varredura'}
         </button>
-      </section>
+      </div>
 
-      <section>
-        <h2 style={styles.listTitle}>Scans existentes</h2>
-        {loading && <p>Carregando scans...</p>}
-        {error && <p style={styles.error}>{error}</p>}
-        {!loading && !error && scans?.length === 0 && <p style={styles.empty}>Nenhum scan encontrado.</p>}
+      {/* ── Scans existentes ─────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">Scans existentes</div>
+        </div>
+        {loading && <div className="small muted">Carregando scans…</div>}
+        {error && <div className="pill-bad" style={{ padding: '8px 12px', borderRadius: 'var(--r-sm)' }}>{error}</div>}
+        {!loading && !error && scans?.length === 0 && <div className="small muted">Nenhum scan encontrado.</div>}
 
         {!loading && scans && scans.length > 0 && (
-          <div style={styles.tableWrapper}>
-            <table style={styles.table}>
+          <div className="tbl-wrap">
+            <table className="tbl">
               <thead>
                 <tr>
-                  <th style={styles.th}>ID</th>
-                  <th style={styles.th}>Tipo</th>
-                  <th style={styles.th}>Modo</th>
-                  <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Sites</th>
-                  <th style={styles.th}>Arquivos</th>
-                  <th style={styles.th}>Volume</th>
-                  <th style={styles.th}>Criado em</th>
-                  <th style={styles.th}>Ações</th>
+                  <th>ID</th>
+                  <th>Tipo</th>
+                  <th>Modo</th>
+                  <th>Status</th>
+                  <th className="td-r">Sites</th>
+                  <th className="td-r">Arquivos</th>
+                  <th className="td-r">Volume</th>
+                  <th>Criado em</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {scans.map((scan) => (
-                  <tr key={scan.id} style={styles.tr}>
-                    <td style={styles.td}><span style={styles.monospace} title={scan.id}>{scan.id.slice(0, 8)}…</span></td>
-                    <td style={styles.td}>{scanType(scan)}</td>
-                    <td style={styles.td}>{scanMode(scan)}</td>
-                    <td style={styles.td}><StatusBadge status={scan.status} /></td>
-                    <td style={styles.td}>{scan.totalSites?.toLocaleString('pt-BR') ?? '—'}</td>
-                    <td style={styles.td}>{scan.totalFiles?.toLocaleString('pt-BR') ?? '—'}</td>
-                    <td style={styles.td}>{formatBytes(scan.totalBytes)}</td>
-                    <td style={styles.td}>{new Date(scan.createdAt).toLocaleString('pt-BR')}</td>
-                    <td style={styles.td}>
-                      {(scan.status === 'running' || scan.status === 'pending') && (
-                        <div style={styles.rowActions}>
-                          <Link to="/" style={styles.link}>Acompanhar</Link>
-                          <button
-                            type="button"
-                            onClick={() => handleCancelScan(scan.id)}
-                            disabled={cancellingScanId === scan.id}
-                            style={styles.cancelButton}
-                          >
-                            {cancellingScanId === scan.id ? 'Cancelando...' : 'Cancelar'}
-                          </button>
-                        </div>
-                      )}
-                      {scan.status === 'completed' && <Link to={`/inventory/${scan.id}`} style={styles.link}>Inventário</Link>}
-                      {scan.status === 'failed' && <Link to="/logs" style={styles.link}>Logs</Link>}
+                {scans.map(scan => (
+                  <tr key={scan.id}>
+                    <td className="td-mono">{scan.id.slice(0, 8)}…</td>
+                    <td>{scanType(scan)}</td>
+                    <td>{scanMode(scan)}</td>
+                    <td><StatusPill status={scan.status} /></td>
+                    <td className="td-r">{scan.totalSites?.toLocaleString('pt-BR') ?? '—'}</td>
+                    <td className="td-r">{scan.totalFiles?.toLocaleString('pt-BR') ?? '—'}</td>
+                    <td className="td-r">{fmtBytes(scan.totalBytes)}</td>
+                    <td className="td-mute">{new Date(scan.createdAt).toLocaleString('pt-BR')}</td>
+                    <td>
+                      <div className="row">
+                        {(scan.status === 'running' || scan.status === 'pending') && (
+                          <>
+                            <Link to="/" className="td-link small">Acompanhar</Link>
+                            <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--bad)' }} onClick={() => handleCancelScan(scan.id)} disabled={cancellingScanId === scan.id}>
+                              {cancellingScanId === scan.id ? 'Cancelando…' : 'Cancelar'}
+                            </button>
+                          </>
+                        )}
+                        {scan.status === 'completed' && <Link to={`/inventory/${scan.id}`} className="td-link small">Inventário</Link>}
+                        {scan.status === 'failed' && <Link to="/logs" className="td-link small">Logs</Link>}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -422,57 +316,7 @@ export default function ScansPage(): React.ReactElement {
             </table>
           </div>
         )}
-      </section>
-    </div>
+      </div>
+    </>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 1180, margin: '0 auto', padding: '2rem 1rem' },
-  header: { display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' },
-  title: { fontSize: '1.75rem', fontWeight: 700, margin: 0 },
-  subtitle: { color: '#6b7280', margin: '0.35rem 0 0' },
-  panel: { border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '2rem', background: '#fff' },
-  panelTitle: { fontSize: '1.1rem', margin: '0 0 1rem' },
-  subsectionTitle: { fontSize: '0.95rem', margin: '1.25rem 0 0.75rem' },
-  label: { display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: 6 },
-  input: { width: '100%', boxSizing: 'border-box', padding: '0.7rem 0.8rem', border: '1px solid #d1d5db', borderRadius: 6 },
-  scanOptionsGrid: { display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(180px, 1fr)', gap: 12 },
-  allSitesGrid: { display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) 180px', gap: 12, marginTop: 12 },
-  modeHelp: { color: '#4b5563', fontSize: '0.8rem', padding: '0.65rem 0.75rem', marginTop: 8, background: '#f9fafb', borderRadius: 6 },
-  searchGrid: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 180px auto', gap: 12, alignItems: 'end' },
-  loadButton: { padding: '0.72rem 1rem', background: '#fff', color: '#2563eb', border: '1px solid #2563eb', borderRadius: 6, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
-  helper: { minHeight: 20, color: '#6b7280', fontSize: '0.8rem', marginTop: 5 },
-  selectionActions: { display: 'flex', gap: 8, margin: '0.75rem 0' },
-  secondaryButton: { padding: '0.45rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' },
-  siteList: { maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 },
-  siteRow: { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '0.7rem', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' },
-  siteUrl: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
-  pager: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' },
-  pagerActions: { display: 'flex', alignItems: 'center', gap: 8 },
-  pagerLabel: { color: '#6b7280', fontSize: '0.8rem' },
-  pageSelect: { padding: '0.4rem 0.55rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
-  chips: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: '0.8rem' },
-  chip: { border: 0, borderRadius: 999, padding: '0.35rem 0.65rem', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' },
-  moreChip: { borderRadius: 999, padding: '0.35rem 0.65rem', background: '#f3f4f6', color: '#374151' },
-  toggleRow: { display: 'flex', alignItems: 'flex-start', gap: 10, margin: '1rem 0', cursor: 'pointer' },
-  toggleHelp: { display: 'block', color: '#6b7280', fontSize: '0.75rem', marginTop: 2 },
-  primaryButton: { padding: '0.7rem 1.15rem', background: '#2563eb', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
-  disabledButton: { opacity: 0.55, cursor: 'not-allowed' },
-  listTitle: { fontSize: '1.15rem', marginBottom: '0.75rem' },
-  error: { color: '#b91c1c', margin: '0.5rem 0' },
-  empty: { color: '#6b7280', padding: '1rem 0' },
-  tableWrapper: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' },
-  th: { padding: '0.75rem', background: '#f9fafb', textAlign: 'left', color: '#374151', borderBottom: '2px solid #e5e7eb' },
-  tr: { borderBottom: '1px solid #f3f4f6' },
-  td: { padding: '0.75rem', color: '#374151' },
-  monospace: { fontFamily: 'monospace', fontSize: '0.82rem' },
-  link: { color: '#2563eb', textDecoration: 'none', fontWeight: 600 },
-  rowActions: { display: 'flex', alignItems: 'center', gap: 10 },
-  cancelButton: { border: 0, padding: 0, background: 'transparent', color: '#b91c1c', cursor: 'pointer', fontWeight: 600 },
-  badge: { display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: 12, fontSize: '0.78rem', fontWeight: 600 },
-  toast: { position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '0.75rem 1rem', borderRadius: 6, border: '1px solid', fontWeight: 600 },
-  toastSuccess: { background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' },
-  toastError: { background: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' },
-};

@@ -1,62 +1,44 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Search, Download } from 'lucide-react';
 import {
-  getLatestInventorySiteFiles,
-  getLatestInventorySites,
-  type LatestInventorySite,
-  type LatestSiteFile,
-  type LatestSiteDrilldown,
-  type LatestSitesPageSize,
+  getLatestInventorySiteFiles, getLatestInventorySites,
+  type LatestInventorySite, type LatestSiteFile,
+  type LatestSiteDrilldown, type LatestSitesPageSize,
 } from '../api/inventory.api';
 
 const PAGE_SIZES: LatestSitesPageSize[] = [10, 30, 50, 100];
 const DRILLDOWN_LIMIT = 10;
 const DRILL_PAGE_SIZES = [50, 100, 200] as const;
 type DrillPageSize = typeof DRILL_PAGE_SIZES[number];
+type DrillSort = 'size_desc' | 'size_asc' | 'versions_desc' | 'versions_asc' | 'total_desc' | 'total_asc';
 
-type DrillSort =
-  | 'size_desc' | 'size_asc'
-  | 'versions_desc' | 'versions_asc'
-  | 'total_desc' | 'total_asc';
+interface DrillState { data: LatestSiteDrilldown; page: number; pageSize: DrillPageSize; search: string; sort: DrillSort; }
 
-interface DrillState {
-  data:        LatestSiteDrilldown;
-  page:        number;
-  pageSize:    DrillPageSize;
-  search:      string;
-  sort:        DrillSort;
+function fmtBytes(v: number | undefined): string {
+  const b = Number(v || 0);
+  if (!b) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
+  return `${(b / (1024 ** i)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${u[i]}`;
 }
 
-function formatBytes(value: number | undefined): string {
-  const bytes = Number(value || 0);
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / (1024 ** index)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${units[index]}`;
+function fmtDate(v: string | undefined): string {
+  if (!v) return '—';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? v : d.toLocaleString('pt-BR');
 }
 
-function formatDate(value: string | undefined): string {
-  if (!value) return '—';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('pt-BR');
-}
-
-/** Extrai todos os arquivos de um drilldown (todas as bibliotecas). */
 function allFilesFrom(data: LatestSiteDrilldown): LatestSiteFile[] {
   return data.libraries.flatMap(lib => lib.files);
 }
 
-/** Filtra e ordena arquivos client-side. */
-function applyDrillFilter(
-  files: LatestSiteFile[],
-  search: string,
-  sort: DrillSort,
-): LatestSiteFile[] {
-  let result = files;
+function applyDrillFilter(files: LatestSiteFile[], search: string, sort: DrillSort): LatestSiteFile[] {
+  let r = files;
   if (search.trim()) {
     const q = search.trim().toLowerCase();
-    result = result.filter(f => f.name.toLowerCase().includes(q) || (f.fullPath || '').toLowerCase().includes(q));
+    r = r.filter(f => f.name.toLowerCase().includes(q) || (f.fullPath || '').toLowerCase().includes(q));
   }
-  result = [...result].sort((a, b) => {
+  return [...r].sort((a, b) => {
     switch (sort) {
       case 'size_desc':     return (b.sizeBytes || 0) - (a.sizeBytes || 0);
       case 'size_asc':      return (a.sizeBytes || 0) - (b.sizeBytes || 0);
@@ -67,87 +49,66 @@ function applyDrillFilter(
       default:              return 0;
     }
   });
-  return result;
 }
 
-/** Gera contagem de arquivos e bytes por extensão. */
-function extensionStats(files: LatestSiteFile[]): Array<{ ext: string; count: number; bytes: number }> {
-  const map = new Map<string, { count: number; bytes: number }>();
+function extStats(files: LatestSiteFile[]) {
+  const m = new Map<string, { count: number; bytes: number }>();
   for (const f of files) {
     const ext = f.extension || '(sem ext)';
-    const cur = map.get(ext) ?? { count: 0, bytes: 0 };
-    map.set(ext, { count: cur.count + 1, bytes: cur.bytes + (f.sizeBytes || 0) });
+    const cur = m.get(ext) ?? { count: 0, bytes: 0 };
+    m.set(ext, { count: cur.count + 1, bytes: cur.bytes + (f.sizeBytes || 0) });
   }
-  return Array.from(map.entries())
-    .map(([ext, v]) => ({ ext, ...v }))
-    .sort((a, b) => b.bytes - a.bytes);
+  return Array.from(m.entries()).map(([ext, v]) => ({ ext, ...v })).sort((a, b) => b.bytes - a.bytes);
 }
 
-/** Exporta arquivos filtrados como CSV. */
-function exportDrillCsv(site: LatestInventorySite, files: LatestSiteFile[]): void {
-  const header = 'Site,Biblioteca,Arquivo,Caminho,Extensão,Tamanho (bytes),Versões,Esp. versões (bytes),Total (bytes),Criado em,Modificado em,Criado por,Modificado por,URL\n';
+function exportDrillCsv(site: LatestInventorySite, files: LatestSiteFile[]) {
+  const header = 'Site,Biblioteca,Arquivo,Caminho,Extensão,Tamanho (bytes),Versões,Esp. versões (bytes),Total (bytes),Criado em,Modificado em,URL\n';
   const rows = files.map(f => [
     `"${(site.siteName || site.siteId).replace(/"/g, '""')}"`,
     `"${(f.driveName || f.driveId || '').replace(/"/g, '""')}"`,
     `"${(f.name || '').replace(/"/g, '""')}"`,
     `"${(f.fullPath || '').replace(/"/g, '""')}"`,
-    f.extension || '',
-    f.sizeBytes || 0,
-    f.versionCount || 0,
-    f.versionsBytes || 0,
-    f.totalBytes || 0,
+    f.extension || '', f.sizeBytes || 0, f.versionCount || 0, f.versionsBytes || 0, f.totalBytes || 0,
     f.created ? new Date(f.created).toLocaleDateString('pt-BR') : '',
     f.modified ? new Date(f.modified).toLocaleDateString('pt-BR') : '',
-    `"${(f.createdBy || '').replace(/"/g, '""')}"`,
-    `"${(f.modifiedBy || '').replace(/"/g, '""')}"`,
     `"${(f.webUrl || '').replace(/"/g, '""')}"`,
   ].join(',')).join('\n');
   const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   a.download = `sites_drilldown_${(site.siteName || site.siteId).replace(/[^a-z0-9]/gi, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
-/** Exporta arquivos filtrados como JSONL. */
-function exportDrillJsonl(site: LatestInventorySite, files: LatestSiteFile[]): void {
+function exportDrillJsonl(site: LatestInventorySite, files: LatestSiteFile[]) {
   const lines = files.map(f => JSON.stringify({ ...f, siteName: site.siteName, siteUrl: site.siteUrl })).join('\n');
   const blob = new Blob([lines + '\n'], { type: 'application/jsonl;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   a.download = `sites_drilldown_${(site.siteName || site.siteId).replace(/[^a-z0-9]/gi, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.jsonl`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
-// ─── Gráfico de barras por extensão ──────────────────────────────────────────
+// ── ExtensionChart ─────────────────────────────────────────────────────────────
 
 function ExtensionChart({ files }: { files: LatestSiteFile[] }) {
-  const stats = useMemo(() => extensionStats(files).slice(0, 15), [files]);
+  const stats = useMemo(() => extStats(files).slice(0, 15), [files]);
   if (!stats.length) return null;
   const maxBytes = stats[0]?.bytes || 1;
   return (
-    <div style={chartStyles.wrap}>
-      <div style={chartStyles.title}>Extensões — espaço utilizado</div>
-      <div style={chartStyles.rows}>
+    <div className="card" style={{ marginBottom: 'var(--gap-sm)' }}>
+      <div className="card-title" style={{ marginBottom: 10 }}>Extensões — espaço utilizado</div>
+      <div className="stack" style={{ gap: 6 }}>
         {stats.map(({ ext, count, bytes }) => (
-          <div key={ext} style={chartStyles.row}>
-            <div style={chartStyles.label} title={ext}>{ext}</div>
-            <div style={chartStyles.barArea}>
-              <div
-                style={{ ...chartStyles.bar, width: `${Math.round((bytes / maxBytes) * 100)}%` }}
-                title={`${formatBytes(bytes)} · ${count} arquivo(s)`}
-              />
+          <div key={ext} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 90px 70px', gap: 8, alignItems: 'center' }}>
+            <span className="mono small" style={{ color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ext}</span>
+            <div className="bar-track">
+              <div className="bar-fill" style={{ width: `${Math.round((bytes / maxBytes) * 100)}%` }} />
             </div>
-            <div style={chartStyles.meta}>{formatBytes(bytes)}</div>
-            <div style={chartStyles.count}>{count} arq.</div>
+            <span className="small muted" style={{ textAlign: 'right' }}>{fmtBytes(bytes)}</span>
+            <span className="small muted" style={{ textAlign: 'right' }}>{count} arq.</span>
           </div>
         ))}
       </div>
@@ -155,108 +116,63 @@ function ExtensionChart({ files }: { files: LatestSiteFile[] }) {
   );
 }
 
-const chartStyles: Record<string, React.CSSProperties> = {
-  wrap:    { background: '#f7fafc', border: '1px solid #c8ced8', borderRadius: 6, padding: '14px 16px', marginBottom: 14 },
-  title:   { fontWeight: 700, fontSize: 13, marginBottom: 10, color: '#2d3748' },
-  rows:    { display: 'flex', flexDirection: 'column', gap: 6 },
-  row:     { display: 'grid', gridTemplateColumns: '90px 1fr 90px 70px', gap: 8, alignItems: 'center' },
-  label:   { fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#2b6cb0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  barArea: { background: '#e2e8f0', borderRadius: 4, height: 14, overflow: 'hidden' },
-  bar:     { background: '#2b6cb0', height: '100%', borderRadius: 4, transition: 'width .3s ease', minWidth: 4 },
-  meta:    { textAlign: 'right', fontSize: 11, color: '#4a5568' },
-  count:   { textAlign: 'right', fontSize: 11, color: '#718096' },
-};
+// ── DrilldownPanel ─────────────────────────────────────────────────────────────
 
-// ─── Painel de drill-down de um site ─────────────────────────────────────────
-
-function DrilldownPanel({
-  site,
-  drillState,
-  isLoading,
-  drillError,
-  onChangePage,
-  onChangePageSize,
-  onChangeSearch,
-  onChangeSort,
-  onExportCsv,
-  onExportJsonl,
-}: {
-  site:            LatestInventorySite;
-  drillState:      DrillState | null;
-  isLoading:       boolean;
-  drillError:      string | null;
-  onChangePage:    (p: number) => void;
-  onChangePageSize:(ps: DrillPageSize) => void;
-  onChangeSearch:  (q: string) => void;
-  onChangeSort:    (s: DrillSort) => void;
-  onExportCsv:     () => void;
-  onExportJsonl:   () => void;
+function DrilldownPanel({ site, drillState, isLoading, drillError, onChangePage, onChangePageSize, onChangeSearch, onChangeSort, onExportCsv, onExportJsonl }: {
+  site: LatestInventorySite; drillState: DrillState | null; isLoading: boolean; drillError: string | null;
+  onChangePage: (p: number) => void; onChangePageSize: (ps: DrillPageSize) => void;
+  onChangeSearch: (q: string) => void; onChangeSort: (s: DrillSort) => void;
+  onExportCsv: () => void; onExportJsonl: () => void;
 }) {
   if (!drillState && !drillError && !isLoading) return null;
 
   const allFiles = drillState ? allFilesFrom(drillState.data) : [];
   const filtered = drillState ? applyDrillFilter(allFiles, drillState.search, drillState.sort) : [];
-  const ps       = drillState?.pageSize ?? 50;
-  const pg       = drillState?.page ?? 1;
-  const totalPg  = Math.max(1, Math.ceil(filtered.length / ps));
-  const visible  = filtered.slice((pg - 1) * ps, pg * ps);
+  const ps = drillState?.pageSize ?? 50;
+  const pg = drillState?.page ?? 1;
+  const totalPg = Math.max(1, Math.ceil(filtered.length / ps));
+  const visible = filtered.slice((pg - 1) * ps, pg * ps);
 
   return (
-    <section style={styles.panel}>
-      <div style={styles.detailHeader}>
+    <div className="card stack">
+      <div className="page-head">
         <div>
-          <h2 style={styles.detailTitle}>{site.siteName || site.siteId}</h2>
+          <h2 className="page-title" style={{ fontSize: 'var(--title-size)' }}>{site.siteName || site.siteId}</h2>
           {drillState && (
-            <div style={styles.muted}>
-              Scan {drillState.data.site.scanId} · {formatDate(drillState.data.site.scannedAt)} · {drillState.data.totalFiles.toLocaleString('pt-BR')} arquivo(s) no servidor
+            <div className="small muted">
+              Scan {drillState.data.site.scanId} · {fmtDate(drillState.data.site.scannedAt)} · {drillState.data.totalFiles.toLocaleString('pt-BR')} arquivo(s)
             </div>
           )}
         </div>
         {drillState && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" style={styles.secondaryButton} onClick={onExportCsv}>↓ CSV</button>
-            <button type="button" style={styles.secondaryButton} onClick={onExportJsonl}>↓ JSONL</button>
+          <div className="row">
+            <button type="button" className="btn btn-sm" onClick={onExportCsv}><Download size={13} /> CSV</button>
+            <button type="button" className="btn btn-sm" onClick={onExportJsonl}><Download size={13} /> JSONL</button>
           </div>
         )}
       </div>
 
-      {isLoading && <div style={styles.empty}>Carregando bibliotecas e arquivos…</div>}
-      {drillError && <div role="alert" style={styles.error}>{drillError}</div>}
+      {isLoading && <div className="small muted">Carregando bibliotecas e arquivos…</div>}
+      {drillError && <div className="pill-bad" style={{ padding: '8px 12px', borderRadius: 'var(--r-sm)' }}>{drillError}</div>}
 
       {drillState && (
         <>
-          {/* Bibliotecas incluídas */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
             {drillState.data.libraries.map(lib => (
-              <h3 key={lib.driveId} style={{ margin: 0, fontSize: 13, fontWeight: 700, background: '#eff6ff', color: '#2b6cb0', borderRadius: 4, padding: '4px 10px', border: '1px solid #bee3f8' }}>
-                {lib.driveName}
-              </h3>
+              <span key={lib.driveId} className="pill pill-info">{lib.driveName}</span>
             ))}
           </div>
 
-          {/* Gráfico de extensões */}
           <ExtensionChart files={allFiles} />
 
-          {/* Controles de filtro */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
-            <label style={styles.label}>
-              Buscar arquivo
-              <input
-                aria-label="Buscar arquivo no drill-down"
-                value={drillState.search}
-                onChange={e => onChangeSearch(e.target.value)}
-                placeholder="Nome ou caminho…"
-                style={{ ...styles.input, minWidth: 220 }}
-              />
-            </label>
-            <label style={styles.label}>
-              Ordenar por
-              <select
-                aria-label="Ordenação"
-                value={drillState.sort}
-                onChange={e => onChangeSort(e.target.value as DrillSort)}
-                style={styles.select}
-              >
+          <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="field" style={{ flex: '1 1 220px' }}>
+              <label className="field-label">Buscar arquivo</label>
+              <input className="input" aria-label="Buscar arquivo" value={drillState.search} onChange={e => onChangeSearch(e.target.value)} placeholder="Nome ou caminho…" />
+            </div>
+            <div className="field" style={{ flex: '0 0 180px' }}>
+              <label className="field-label">Ordenar por</label>
+              <select className="select" value={drillState.sort} onChange={e => onChangeSort(e.target.value as DrillSort)}>
                 <option value="size_desc">Tamanho ↓</option>
                 <option value="size_asc">Tamanho ↑</option>
                 <option value="versions_desc">Versões ↓</option>
@@ -264,56 +180,46 @@ function DrilldownPanel({
                 <option value="total_desc">Total ↓</option>
                 <option value="total_asc">Total ↑</option>
               </select>
-            </label>
-            <label style={styles.label}>
-              Exibir
-              <select
-                aria-label="Itens por página"
-                value={ps}
-                onChange={e => onChangePageSize(Number(e.target.value) as DrillPageSize)}
-                style={styles.select}
-              >
+            </div>
+            <div className="field" style={{ flex: '0 0 160px' }}>
+              <label className="field-label">Exibir</label>
+              <select className="select" value={ps} onChange={e => onChangePageSize(Number(e.target.value) as DrillPageSize)}>
                 {DRILL_PAGE_SIZES.map(n => <option key={n} value={n}>{n} por página</option>)}
               </select>
-            </label>
-            <span style={{ ...styles.muted, alignSelf: 'center', marginBottom: 2 }}>
-              {filtered.length.toLocaleString('pt-BR')} arquivo(s) filtrado(s)
-            </span>
+            </div>
+            <span className="small muted">{filtered.length.toLocaleString('pt-BR')} arquivo(s) filtrado(s)</span>
           </div>
 
-          {/* Tabela de arquivos */}
           {visible.length === 0 ? (
-            <div style={styles.empty}>Nenhum arquivo encontrado com os filtros atuais.</div>
+            <div className="small muted">Nenhum arquivo encontrado.</div>
           ) : (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
+            <div className="tbl-wrap">
+              <table className="tbl">
                 <thead>
                   <tr>
-                    <th style={styles.th}>Arquivo</th>
-                    <th style={styles.th}>Caminho</th>
-                    <th style={styles.th}>Ext.</th>
-                    <th style={styles.thRight}>Tamanho</th>
-                    <th style={styles.thRight}>Versões</th>
-                    <th style={styles.thRight}>Esp. versões</th>
-                    <th style={styles.thRight}>Total</th>
+                    <th>Arquivo</th>
+                    <th>Caminho</th>
+                    <th>Ext.</th>
+                    <th className="td-r">Tamanho</th>
+                    <th className="td-r">Versões</th>
+                    <th className="td-r">Esp. versões</th>
+                    <th className="td-r">Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map(file => (
                     <tr key={`${file.driveId}:${file.itemId}`}>
-                      <td style={styles.td}>
+                      <td className="td-ellipsis">
                         {file.webUrl
-                          ? <a href={file.webUrl} target="_blank" rel="noreferrer" style={styles.link}>{file.name}</a>
+                          ? <a href={file.webUrl} target="_blank" rel="noreferrer" className="td-link">{file.name}</a>
                           : file.name}
                       </td>
-                      <td style={{ ...styles.td, fontSize: 11, color: '#718096' }}>
-                        {file.fullPath || '—'}
-                      </td>
-                      <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: 11 }}>{file.extension || '—'}</td>
-                      <td style={styles.tdRight}>{formatBytes(file.sizeBytes)}</td>
-                      <td style={styles.tdRight}>{(file.versionCount || 0).toLocaleString('pt-BR')}</td>
-                      <td style={styles.tdRight}>{formatBytes(file.versionsBytes)}</td>
-                      <td style={styles.tdRight}>{formatBytes(file.totalBytes)}</td>
+                      <td className="td-mute small" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.fullPath || '—'}</td>
+                      <td className="td-mono td-mute">{file.extension || '—'}</td>
+                      <td className="td-r">{fmtBytes(file.sizeBytes)}</td>
+                      <td className="td-r">{(file.versionCount || 0).toLocaleString('pt-BR')}</td>
+                      <td className="td-r">{fmtBytes(file.versionsBytes)}</td>
+                      <td className="td-r">{fmtBytes(file.totalBytes)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -321,23 +227,19 @@ function DrilldownPanel({
             </div>
           )}
 
-          {/* Paginação do drill-down */}
-          <footer style={styles.pagination}>
-            <span style={styles.muted}>
-              Página {pg} de {totalPg} · {filtered.length.toLocaleString('pt-BR')} arquivo(s)
-            </span>
-            <div style={styles.paginationButtons}>
-              <button type="button" disabled={pg <= 1} onClick={() => onChangePage(pg - 1)} style={styles.pageButton}>Anterior</button>
-              <button type="button" disabled={pg >= totalPg} onClick={() => onChangePage(pg + 1)} style={styles.pageButton}>Próxima</button>
-            </div>
-          </footer>
+          <div className="row">
+            <span className="small muted">Página {pg} de {totalPg} · {filtered.length.toLocaleString('pt-BR')} arquivo(s)</span>
+            <span className="spacer" />
+            <button type="button" className="btn btn-sm" disabled={pg <= 1} onClick={() => onChangePage(pg - 1)}>Anterior</button>
+            <button type="button" className="btn btn-sm" disabled={pg >= totalPg} onClick={() => onChangePage(pg + 1)}>Próxima</button>
+          </div>
         </>
       )}
-    </section>
+    </div>
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+// ── Componente principal ───────────────────────────────────────────────────────
 
 export default function SitesPage(): React.ReactElement {
   const [query, setQuery] = useState('');
@@ -355,222 +257,149 @@ export default function SitesPage(): React.ReactElement {
   const [drillLoading, setDrillLoading] = useState<Set<string>>(new Set());
 
   const loadSites = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
-      const result = await getLatestInventorySites({
-        search: appliedQuery || undefined,
-        page,
-        pageSize,
-      });
-      setItems(result.items);
-      setTotal(result.total);
-      setTotalPages(result.totalPages);
+      const r = await getLatestInventorySites({ search: appliedQuery || undefined, page, pageSize });
+      setItems(r.items); setTotal(r.total); setTotalPages(r.totalPages);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao listar sites inventariados.');
-    } finally {
-      setLoading(false);
-    }
+      setError(err instanceof Error ? err.message : 'Erro ao listar sites.');
+    } finally { setLoading(false); }
   }, [appliedQuery, page, pageSize]);
 
   useEffect(() => { void loadSites(); }, [loadSites]);
 
+  const selectedIds = useMemo(() => new Set(selected.keys()), [selected]);
   const selectedCount = selected.size;
   const drillDisabled = selectedCount < 1 || selectedCount > DRILLDOWN_LIMIT;
-  const selectedIds = useMemo(() => new Set(selected.keys()), [selected]);
 
-  function applySearch(event: React.FormEvent): void {
-    event.preventDefault();
-    setPage(1);
-    setAppliedQuery(query.trim());
+  function applySearch(e: React.FormEvent) {
+    e.preventDefault(); setPage(1); setAppliedQuery(query.trim());
   }
 
-  function toggleSite(site: LatestInventorySite): void {
-    setSelected((current) => {
-      const next = new Map(current);
-      if (next.has(site.siteId)) next.delete(site.siteId);
-      else next.set(site.siteId, site);
+  function toggleSite(site: LatestInventorySite) {
+    setSelected(cur => {
+      const next = new Map(cur);
+      if (next.has(site.siteId)) next.delete(site.siteId); else next.set(site.siteId, site);
       return next;
     });
   }
 
-  function togglePage(): void {
-    const allSelected = items.length > 0 && items.every(site => selected.has(site.siteId));
-    setSelected((current) => {
-      const next = new Map(current);
-      for (const site of items) {
-        if (allSelected) next.delete(site.siteId);
-        else next.set(site.siteId, site);
-      }
+  function togglePage() {
+    const allSel = items.length > 0 && items.every(s => selected.has(s.siteId));
+    setSelected(cur => {
+      const next = new Map(cur);
+      for (const s of items) { if (allSel) next.delete(s.siteId); else next.set(s.siteId, s); }
       return next;
     });
   }
 
-  async function loadDrilldown(siteId: string, targetPage = 1, pageSize: DrillPageSize = 50): Promise<void> {
-    setDrillLoading(current => new Set(current).add(siteId));
-    setDrillErrors(current => {
-      const next = { ...current };
-      delete next[siteId];
-      return next;
-    });
+  async function loadDrilldown(siteId: string, targetPage = 1, pageSize: DrillPageSize = 50) {
+    setDrillLoading(c => new Set(c).add(siteId));
+    setDrillErrors(c => { const n = { ...c }; delete n[siteId]; return n; });
     try {
-      const data = await getLatestInventorySiteFiles(siteId, {
-        page: targetPage,
-        pageSize: 50,
-      });
-      setDrillStates(current => {
-        const prev = current[siteId];
-        return {
-          ...current,
-          [siteId]: {
-            data,
-            page:     targetPage,
-            pageSize: prev?.pageSize ?? pageSize,
-            search:   prev?.search  ?? '',
-            sort:     prev?.sort    ?? 'size_desc',
-          },
-        };
+      const data = await getLatestInventorySiteFiles(siteId, { page: targetPage, pageSize: 50 });
+      setDrillStates(c => {
+        const prev = c[siteId];
+        return { ...c, [siteId]: { data, page: targetPage, pageSize: prev?.pageSize ?? pageSize, search: prev?.search ?? '', sort: prev?.sort ?? 'size_desc' } };
       });
     } catch (err) {
-      setDrillErrors(current => ({
-        ...current,
-        [siteId]: err instanceof Error ? err.message : 'Erro ao detalhar o site.',
-      }));
+      setDrillErrors(c => ({ ...c, [siteId]: err instanceof Error ? err.message : 'Erro ao detalhar o site.' }));
     } finally {
-      setDrillLoading((current) => {
-        const next = new Set(current);
-        next.delete(siteId);
-        return next;
-      });
+      setDrillLoading(c => { const n = new Set(c); n.delete(siteId); return n; });
     }
   }
 
-  async function loadSelectedDrilldowns(): Promise<void> {
+  async function loadSelectedDrilldowns() {
     if (drillDisabled) return;
-    await Promise.all(Array.from(selected.keys()).map(siteId => loadDrilldown(siteId)));
+    await Promise.all(Array.from(selected.keys()).map(id => loadDrilldown(id)));
   }
 
-  function updateDrillState(siteId: string, patch: Partial<Omit<DrillState, 'data'>>): void {
-    setDrillStates(current => {
-      const prev = current[siteId];
-      if (!prev) return current;
-      return { ...current, [siteId]: { ...prev, ...patch, page: patch.page ?? 1 } };
+  function updateDrillState(siteId: string, patch: Partial<Omit<DrillState, 'data'>>) {
+    setDrillStates(c => {
+      const prev = c[siteId];
+      if (!prev) return c;
+      return { ...c, [siteId]: { ...prev, ...patch, page: patch.page ?? 1 } };
     });
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
+    <>
+      <div className="page-head">
         <div>
-          <h1 style={styles.title}>Sites</h1>
-          <p style={styles.subtitle}>
-            Último inventário concluído de cada site, independentemente do scan de origem.
-          </p>
+          <h1 className="page-title">Sites</h1>
+          <p className="page-sub">Último inventário disponível por site — clique para detalhar.</p>
         </div>
-        <button type="button" style={styles.secondaryButton} onClick={() => void loadSites()}>
-          Atualizar
-        </button>
-      </header>
+        <button type="button" className="btn btn-sm" onClick={() => void loadSites()}>Atualizar</button>
+      </div>
 
-      <section style={styles.panel}>
-        <form style={styles.filters} onSubmit={applySearch}>
-          <label style={styles.growLabel}>
-            Nome, URL ou ID do site
-            <input
-              aria-label="Nome, URL ou ID do site"
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder="Ex.: financeiro ou https://tenant/sites/financeiro"
-              style={styles.input}
-            />
-          </label>
-          <label style={styles.label}>
-            Sites por página
-            <select
-              aria-label="Sites por página"
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value) as LatestSitesPageSize);
-                setPage(1);
-              }}
-              style={styles.select}
-            >
-              {PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+      <div className="card">
+        <form className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }} onSubmit={applySearch}>
+          <div className="field" style={{ flex: '1 1 420px' }}>
+            <label className="field-label">Nome, URL ou ID do site</label>
+            <input className="input" aria-label="Nome, URL ou ID do site" value={query} onChange={e => setQuery(e.target.value)} placeholder="Ex.: financeiro ou https://tenant/sites/financeiro" />
+          </div>
+          <div className="field" style={{ flex: '0 0 160px' }}>
+            <label className="field-label">Sites por página</label>
+            <select className="select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value) as LatestSitesPageSize); setPage(1); }}>
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
-          </label>
-          <button type="submit" style={styles.primaryButton}>Buscar</button>
+          </div>
+          <button type="submit" className="btn btn-primary"><Search size={14} /> Buscar</button>
         </form>
 
-        <div style={styles.selectionBar}>
-          <div>
-            <strong>{selectedCount}</strong> site(s) selecionado(s).
-            {' '}Selecione de 1 a 10 para carregar bibliotecas e arquivos.
-          </div>
-          <button
-            type="button"
-            disabled={drillDisabled}
-            style={{ ...styles.primaryButton, ...(drillDisabled ? styles.disabled : {}) }}
-            onClick={() => void loadSelectedDrilldowns()}
-          >
+        <div className="row" style={{ margin: 'var(--gap) 0 var(--gap-sm)', padding: '10px 12px', background: 'var(--panel-2)', borderRadius: 'var(--r-sm)', flexWrap: 'wrap' }}>
+          <span className="small"><strong>{selectedCount}</strong> site(s) selecionado(s). Selecione 1–10 para abrir drill-down.</span>
+          <span className="spacer" />
+          <button type="button" className="btn btn-sm btn-primary" disabled={drillDisabled} onClick={() => void loadSelectedDrilldowns()}>
             Abrir drill-down
           </button>
         </div>
+
         {selectedCount > DRILLDOWN_LIMIT && (
-          <div role="alert" style={styles.warning}>
+          <div className="pill-warn" style={{ padding: '8px 12px', borderRadius: 'var(--r-sm)', marginBottom: 'var(--gap-sm)' }}>
             Drill-down desabilitado: reduza a seleção para no máximo 10 sites.
           </div>
         )}
 
-        {error && <div role="alert" style={styles.error}>{error}</div>}
+        {error && <div className="pill-bad" style={{ padding: '8px 12px', borderRadius: 'var(--r-sm)', marginBottom: 'var(--gap-sm)' }}>{error}</div>}
+
         {loading ? (
-          <div style={styles.empty}>Carregando sites inventariados…</div>
+          <div className="small muted">Carregando sites inventariados…</div>
         ) : items.length === 0 ? (
-          <div style={styles.empty}>Nenhum site inventariado encontrado.</div>
+          <div className="small muted">Nenhum site inventariado encontrado.</div>
         ) : (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div className="tbl-wrap">
+            <table className="tbl">
               <thead>
                 <tr>
-                  <th style={styles.thCheck}>
-                    <input
-                      aria-label="Selecionar sites da página"
-                      type="checkbox"
-                      checked={items.every(site => selectedIds.has(site.siteId))}
-                      onChange={togglePage}
-                    />
+                  <th style={{ width: 36 }}>
+                    <input aria-label="Selecionar todos" type="checkbox" checked={items.every(s => selectedIds.has(s.siteId))} onChange={togglePage} style={{ accentColor: 'var(--accent)' }} />
                   </th>
-                  <th style={styles.th}>Site</th>
-                  <th style={styles.th}>Última varredura</th>
-                  <th style={styles.th}>Scan de origem</th>
-                  <th style={styles.thRight}>Arquivos</th>
-                  <th style={styles.thRight}>Tamanho atual</th>
-                  <th style={styles.thRight}>Versões</th>
-                  <th style={styles.thRight}>Total</th>
+                  <th>Site</th>
+                  <th>Última varredura</th>
+                  <th>Scan de origem</th>
+                  <th className="td-r">Arquivos</th>
+                  <th className="td-r">Tamanho</th>
+                  <th className="td-r">Versões</th>
+                  <th className="td-r">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((site, index) => (
-                  <tr key={site.siteId} style={index % 2 ? styles.oddRow : undefined}>
-                    <td style={styles.tdCheck}>
-                      <input
-                        aria-label={`Selecionar ${site.siteName || site.siteUrl || site.siteId}`}
-                        type="checkbox"
-                        checked={selectedIds.has(site.siteId)}
-                        onChange={() => toggleSite(site)}
-                      />
+                {items.map(site => (
+                  <tr key={site.siteId} style={{ background: selectedIds.has(site.siteId) ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : undefined }}>
+                    <td style={{ padding: 9 }}>
+                      <input aria-label={`Selecionar ${site.siteName || site.siteUrl || site.siteId}`} type="checkbox" checked={selectedIds.has(site.siteId)} onChange={() => toggleSite(site)} style={{ accentColor: 'var(--accent)' }} />
                     </td>
-                    <td style={styles.td}>
-                      <div style={styles.siteName}>{site.siteName || site.siteId}</div>
-                      {site.siteUrl
-                        ? <a href={site.siteUrl} target="_blank" rel="noreferrer" style={styles.link}>{site.siteUrl}</a>
-                        : <span style={styles.muted}>{site.siteId}</span>}
+                    <td>
+                      <div style={{ fontWeight: selectedIds.has(site.siteId) ? 700 : 600, color: selectedIds.has(site.siteId) ? 'var(--accent)' : 'var(--text)', marginBottom: 2 }}>{site.siteName || site.siteId}</div>
+                      {site.siteUrl && <a href={site.siteUrl} target="_blank" rel="noreferrer" className="td-link small">{site.siteUrl}</a>}
                     </td>
-                    <td style={styles.td}>{formatDate(site.scannedAt)}</td>
-                    <td style={styles.td}><code style={styles.code}>{site.scanId}</code></td>
-                    <td style={styles.tdRight}>{site.filesCount.toLocaleString('pt-BR')}</td>
-                    <td style={styles.tdRight}>{formatBytes(site.bytesTotal)}</td>
-                    <td style={styles.tdRight}>{formatBytes(site.versionsBytesTotal)}</td>
-                    <td style={styles.tdRight}>{formatBytes(site.totalBytes)}</td>
+                    <td className="td-mute small">{fmtDate(site.scannedAt)}</td>
+                    <td className="td-mono small">{site.scanId}</td>
+                    <td className="td-r">{site.filesCount.toLocaleString('pt-BR')}</td>
+                    <td className="td-r">{fmtBytes(site.bytesTotal)}</td>
+                    <td className="td-r">{fmtBytes(site.versionsBytesTotal)}</td>
+                    <td className="td-r">{fmtBytes(site.totalBytes)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -578,37 +407,25 @@ export default function SitesPage(): React.ReactElement {
           </div>
         )}
 
-        <footer style={styles.pagination}>
-          <span>{total.toLocaleString('pt-BR')} site(s)</span>
-          <div style={styles.paginationButtons}>
-            <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} style={styles.pageButton}>
-              Anterior
-            </button>
-            <span>Página {page} de {totalPages}</span>
-            <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)} style={styles.pageButton}>
-              Próxima
-            </button>
-          </div>
-        </footer>
-      </section>
+        <div className="row" style={{ marginTop: 14 }}>
+          <span className="small muted">{total.toLocaleString('pt-BR')} site(s)</span>
+          <span className="spacer" />
+          <button type="button" className="btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Anterior</button>
+          <span className="small muted">Página {page} de {totalPages}</span>
+          <button type="button" className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Próxima</button>
+        </div>
+      </div>
 
       {/* Drill-downs */}
       {Array.from(selected.values()).map(site => {
-        const ds       = drillStates[site.siteId] ?? null;
-        const err      = drillErrors[site.siteId] ?? null;
-        const isLoad   = drillLoading.has(site.siteId);
+        const ds = drillStates[site.siteId] ?? null;
+        const err = drillErrors[site.siteId] ?? null;
+        const isLoad = drillLoading.has(site.siteId);
         if (!ds && !err && !isLoad) return null;
-
         const allFiles = ds ? allFilesFrom(ds.data) : [];
         const filtered = ds ? applyDrillFilter(allFiles, ds.search, ds.sort) : [];
-
         return (
-          <DrilldownPanel
-            key={site.siteId}
-            site={site}
-            drillState={ds}
-            isLoading={isLoad}
-            drillError={err}
+          <DrilldownPanel key={site.siteId} site={site} drillState={ds} isLoading={isLoad} drillError={err}
             onChangePage={p => updateDrillState(site.siteId, { page: p })}
             onChangePageSize={ps => updateDrillState(site.siteId, { pageSize: ps })}
             onChangeSearch={q => updateDrillState(site.siteId, { search: q, page: 1 })}
@@ -618,44 +435,6 @@ export default function SitesPage(): React.ReactElement {
           />
         );
       })}
-    </div>
+    </>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { padding: 28, color: '#1a202c' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 },
-  title: { margin: 0, fontSize: 28 },
-  subtitle: { margin: '6px 0 0', color: '#5f6c83' },
-  panel: { background: '#fff', border: '1px solid #c8ced8', borderRadius: 8, padding: 18, marginBottom: 18 },
-  filters: { display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' },
-  growLabel: { display: 'grid', gap: 6, flex: '1 1 420px', fontSize: 12, fontWeight: 700 },
-  label: { display: 'grid', gap: 6, minWidth: 150, fontSize: 12, fontWeight: 700 },
-  input: { minHeight: 38, border: '1px solid #aeb8c7', borderRadius: 6, padding: '0 10px' },
-  select: { minHeight: 40, border: '1px solid #aeb8c7', borderRadius: 6, padding: '0 10px', background: '#fff' },
-  primaryButton: { minHeight: 40, border: 0, borderRadius: 6, padding: '0 16px', background: '#2b6cb0', color: '#fff', fontWeight: 700, cursor: 'pointer' },
-  secondaryButton: { minHeight: 38, border: '1px solid #2b6cb0', borderRadius: 6, padding: '0 14px', background: '#fff', color: '#2b6cb0', fontWeight: 700, cursor: 'pointer' },
-  disabled: { opacity: 0.5, cursor: 'not-allowed' },
-  selectionBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, margin: '16px 0 10px', padding: 12, background: '#f7fafc', borderRadius: 6 },
-  warning: { padding: 10, marginBottom: 12, background: '#fffbeb', border: '1px solid #d69e2e', borderRadius: 6, color: '#975a16' },
-  error: { padding: 10, margin: '12px 0', background: '#fff5f5', border: '1px solid #c53030', borderRadius: 6, color: '#9b2c2c' },
-  empty: { padding: 24, textAlign: 'center', color: '#5f6c83' },
-  tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', padding: '9px 10px', background: '#f1f5f9', borderBottom: '1px solid #c8ced8', whiteSpace: 'nowrap' },
-  thCheck: { width: 36, padding: 9, background: '#f1f5f9', borderBottom: '1px solid #c8ced8' },
-  thRight: { textAlign: 'right', padding: '9px 10px', background: '#f1f5f9', borderBottom: '1px solid #c8ced8', whiteSpace: 'nowrap' },
-  td: { padding: '9px 10px', borderBottom: '1px solid #e2e8f0', verticalAlign: 'top' },
-  tdCheck: { padding: 9, borderBottom: '1px solid #e2e8f0', verticalAlign: 'top' },
-  tdRight: { padding: '9px 10px', borderBottom: '1px solid #e2e8f0', textAlign: 'right', whiteSpace: 'nowrap' },
-  oddRow: { background: '#fafcff' },
-  siteName: { fontWeight: 700, marginBottom: 3 },
-  link: { color: '#2b6cb0', textDecoration: 'none' },
-  muted: { color: '#5f6c83', fontSize: 12 },
-  code: { fontSize: 11, overflowWrap: 'anywhere' },
-  pagination: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 14, color: '#5f6c83' },
-  paginationButtons: { display: 'flex', alignItems: 'center', gap: 10 },
-  pageButton: { minHeight: 32, border: '1px solid #aeb8c7', borderRadius: 5, background: '#fff', padding: '0 10px', cursor: 'pointer' },
-  detailHeader: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 },
-  detailTitle: { margin: 0, fontSize: 19 },
-};

@@ -4,12 +4,13 @@ import { getTopVersioned } from '../api/analytics.api';
 import type { AnalyticsDateField, AnalyticsWindow, TopVersionedItem } from '../api/analytics.api';
 import { listScans } from '../api/scans.api';
 import { useApi } from '../hooks/useApi';
+import { Download } from 'lucide-react';
 
 const WINDOWS: Array<{ value: AnalyticsWindow; label: string }> = [
-  { value: 'day', label: 'Dia' },
-  { value: 'week', label: 'Semana' },
+  { value: 'day',   label: 'Dia' },
+  { value: 'week',  label: 'Semana' },
   { value: 'month', label: 'Mês' },
-  { value: 'year', label: 'Ano' },
+  { value: 'year',  label: 'Ano' },
 ];
 const LIMITS = [80, 100, 200, 300] as const;
 
@@ -56,11 +57,11 @@ function exportCsv(items: TopVersionedItem[], field: AnalyticsDateField): void {
 }
 
 export default function VersionedByPeriodPage(): React.ReactElement {
-  const [scanId, setScanId] = useState('');
+  const [scanId,    setScanId]    = useState('');
   const [windowKey, setWindowKey] = useState<AnalyticsWindow>('month');
-  const [field, setField] = useState<AnalyticsDateField>('modified');
-  const [limit, setLimit] = useState<(typeof LIMITS)[number]>(100);
-  const [search, setSearch] = useState('');
+  const [field,     setField]     = useState<AnalyticsDateField>('modified');
+  const [limit,     setLimit]     = useState<(typeof LIMITS)[number]>(100);
+  const [search,    setSearch]    = useState('');
 
   const { data: scans, loading: scansLoading } = useApi(listScans, []);
   const completedScans = (scans ?? []).filter(scan => scan.status === 'completed');
@@ -73,126 +74,100 @@ export default function VersionedByPeriodPage(): React.ReactElement {
     const query = search.trim().toLocaleLowerCase('pt-BR');
     if (!query) return data?.items ?? [];
     return (data?.items ?? []).filter(item => [
-      item.siteName,
-      item.siteUrl,
-      item.siteId,
-      item.driveName,
-      item.fullPath,
-      item.name,
-      item.createdBy,
-      item.modifiedBy,
+      item.siteName, item.siteUrl, item.siteId,
+      item.driveName, item.fullPath, item.name,
+      item.createdBy, item.modifiedBy,
     ].some(value => String(value || '').toLocaleLowerCase('pt-BR').includes(query)));
   }, [data, search]);
 
-  const incompleteTimeline = Boolean(data && (
-    !data.timelineAvailable || data.missingTimelineFiles > 0
-  ));
+  const incompleteTimeline = Boolean(data && (!data.timelineAvailable || data.missingTimelineFiles > 0));
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
+    <>
+      <div className="page-head">
         <div>
-          <h1 style={styles.title}>Versionados por Período</h1>
-          <p style={styles.subtitle}>Arquivos mais versionados no recorte temporal do scan.</p>
+          <h1 className="page-title">Versionados por Período</h1>
+          <p className="page-sub">Arquivos mais versionados no recorte temporal do scan.</p>
         </div>
-        <Link to="/" style={styles.link}>Dashboard</Link>
-      </header>
+        <Link to="/" className="td-link" style={{ fontWeight: 700, fontSize: 'var(--fs-sm)' }}>Dashboard</Link>
+      </div>
 
-      <section style={styles.panel}>
-        <div style={styles.controls}>
-          <label style={styles.field}>
-            <span>Scan concluído</span>
-            <select
-              aria-label="Scan concluído"
-              value={scanId}
-              disabled={scansLoading}
-              onChange={event => setScanId(event.target.value)}
-            >
+      <div className="card">
+        <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end', gap: 12 }}>
+          <div className="field" style={{ minWidth: 200 }}>
+            <label className="field-label">Scan concluído</label>
+            <select className="select" aria-label="Scan concluído" value={scanId} disabled={scansLoading}
+              onChange={e => setScanId(e.target.value)}>
               <option value="">Selecione um scan</option>
               {completedScans.map(scan => (
-                <option key={scan.id} value={scan.id}>
-                  {scan.id} · {new Date(scan.createdAt).toLocaleDateString('pt-BR')}
-                </option>
+                <option key={scan.id} value={scan.id}>{scan.id} · {new Date(scan.createdAt).toLocaleDateString('pt-BR')}</option>
               ))}
             </select>
-          </label>
-
-          <label style={styles.field}>
-            <span>Período</span>
-            <select aria-label="Período" value={windowKey} onChange={event => setWindowKey(event.target.value as AnalyticsWindow)}>
-              {WINDOWS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </div>
+          <div className="field" style={{ minWidth: 120 }}>
+            <label className="field-label">Período</label>
+            <select className="select" aria-label="Período" value={windowKey} onChange={e => setWindowKey(e.target.value as AnalyticsWindow)}>
+              {WINDOWS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-          </label>
-
-          <label style={styles.field}>
-            <span>Data de referência</span>
-            <select aria-label="Data de referência" value={field} onChange={event => setField(event.target.value as AnalyticsDateField)}>
+          </div>
+          <div className="field" style={{ minWidth: 190 }}>
+            <label className="field-label">Data de referência</label>
+            <select className="select" aria-label="Data de referência" value={field} onChange={e => setField(e.target.value as AnalyticsDateField)}>
               <option value="modified">LastModified das versões</option>
               <option value="created">File Created</option>
             </select>
-          </label>
-
-          <label style={styles.field}>
-            <span>Quantidade</span>
-            <select
-              aria-label="Quantidade"
-              value={limit}
-              onChange={event => setLimit(Number(event.target.value) as (typeof LIMITS)[number])}
-            >
-              {LIMITS.map(value => <option key={value} value={value}>Top {value}</option>)}
+          </div>
+          <div className="field" style={{ minWidth: 110 }}>
+            <label className="field-label">Quantidade</label>
+            <select className="select" aria-label="Quantidade" value={limit} onChange={e => setLimit(Number(e.target.value) as (typeof LIMITS)[number])}>
+              {LIMITS.map(v => <option key={v} value={v}>Top {v}</option>)}
             </select>
-          </label>
-
-          <label style={{ ...styles.field, flex: 1 }}>
-            <span>Filtrar resultado</span>
-            <input
-              aria-label="Filtrar por site, caminho, pessoa ou arquivo"
-              value={search}
-              placeholder="Site, caminho, pessoa ou arquivo"
-              onChange={event => setSearch(event.target.value)}
-            />
-          </label>
-
-          <button disabled={!filtered.length} onClick={() => exportCsv(filtered, field)}>Exportar CSV</button>
+          </div>
+          <div className="field" style={{ flex: 1, minWidth: 160 }}>
+            <label className="field-label">Filtrar resultado</label>
+            <input className="input" aria-label="Filtrar" value={search} placeholder="Site, caminho, pessoa ou arquivo" onChange={e => setSearch(e.target.value)} />
+          </div>
+          <button className="btn btn-sm" disabled={!filtered.length} onClick={() => exportCsv(filtered, field)}>
+            <Download size={13} /> CSV
+          </button>
         </div>
-
         {data && (
-          <div style={styles.range}>
+          <p className="small muted" style={{ marginTop: 8 }}>
             Recorte do scan: <strong>{fmtDate(data.startIso)}</strong> até <strong>{fmtDate(data.endIso)}</strong>.
             {' '}{field === 'modified'
               ? 'As métricas representam somente versões modificadas nesse período.'
               : 'Os arquivos foram criados nesse período e estão ordenados pelo histórico conhecido no scan.'}
-          </div>
+          </p>
         )}
-      </section>
+      </div>
 
       {incompleteTimeline && (
-        <div role="alert" style={styles.warning}>
+        <div role="alert" className="alert-warn">
           Timeline de versões incompleta: {data?.filesWithTimeline ?? 0} de {data?.totalVersionedFiles ?? 0} arquivos
           versionados possuem eventos detalhados. {data?.missingTimelineFiles ?? 0} arquivo(s) podem ficar fora do recorte
           por LastModified.
         </div>
       )}
 
-      <section style={styles.panel}>
-        <div style={styles.panelHeader}>
+      <div className="card" style={{ padding: 0 }}>
+        <div className="card-head">
           <div>
-            <h2 style={styles.panelTitle}>Top versionados</h2>
-            <p style={styles.subtitle}>Quantidade de versões, espaço ocupado e total no período.</p>
+            <div className="card-title">Top versionados</div>
+            <div className="small muted">Quantidade de versões, espaço ocupado e total no período.</div>
           </div>
-          <span style={styles.badge}>{filtered.length} arquivos</span>
+          <span className="pill pill-info">{filtered.length} arquivos</span>
         </div>
 
-        {!scanId && <p style={styles.state}>Selecione um scan concluído para consultar o período.</p>}
-        {scanId && loading && <p style={styles.state}>Carregando arquivos versionados...</p>}
-        {error && <p role="alert" style={styles.error}>{error}</p>}
+        {!scanId && <p className="small muted" style={{ padding: 28, textAlign: 'center' }}>Selecione um scan concluído para consultar o período.</p>}
+        {scanId && loading && <p className="small muted" style={{ padding: 28, textAlign: 'center' }}>Carregando arquivos versionados...</p>}
+        {error && <p role="alert" className="small" style={{ padding: 16, color: 'var(--bad)', fontWeight: 600 }}>{error}</p>}
         {scanId && !loading && !error && filtered.length === 0 && (
-          <p style={styles.state}>Nenhum arquivo versionado encontrado para os filtros atuais.</p>
+          <p className="small muted" style={{ padding: 28, textAlign: 'center' }}>Nenhum arquivo versionado encontrado para os filtros atuais.</p>
         )}
 
         {filtered.length > 0 && (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div className="tbl-wrap">
+            <table className="tbl">
               <thead>
                 <tr>
                   <th>#</th>
@@ -201,53 +176,35 @@ export default function VersionedByPeriodPage(): React.ReactElement {
                   <th>Arquivo</th>
                   <th>{field === 'created' ? 'Criado em' : 'Última modificação'}</th>
                   <th>Colaborador</th>
-                  <th>Tamanho</th>
-                  <th>Versões</th>
-                  <th>Espaço versões</th>
-                  <th>Total</th>
+                  <th className="td-r">Tamanho</th>
+                  <th className="td-r">Versões</th>
+                  <th className="td-r">Esp. versões</th>
+                  <th className="td-r">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((item, index) => (
                   <tr key={`${item.driveId}:${item.itemId}`}>
-                    <td>{index + 1}</td>
+                    <td className="td-mute">{index + 1}</td>
                     <td>{item.siteName || item.siteId}</td>
-                    <td>{item.driveName || item.driveId}<small style={styles.path}>{item.fullPath || '—'}</small></td>
-                    <td>{item.webUrl ? <a href={item.webUrl} target="_blank" rel="noreferrer">{item.name}</a> : item.name}</td>
-                    <td>{fmtDate(field === 'created' ? item.created : item.modified)}</td>
-                    <td>{(field === 'created' ? item.createdBy : item.modifiedBy) || '—'}</td>
-                    <td>{fmtBytes(item.sizeBytes)}</td>
-                    <td>{(item.versionCount ?? 0).toLocaleString('pt-BR')}</td>
-                    <td>{fmtBytes(item.versionsBytes ?? 0)}</td>
-                    <td><strong>{fmtBytes(item.totalBytes)}</strong></td>
+                    <td>
+                      {item.driveName || item.driveId}
+                      <small className="small muted" style={{ display: 'block', marginTop: 3, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.fullPath || '—'}</small>
+                    </td>
+                    <td>{item.webUrl ? <a href={item.webUrl} target="_blank" rel="noreferrer" className="td-link">{item.name}</a> : item.name}</td>
+                    <td className="small muted">{fmtDate(field === 'created' ? item.created : item.modified)}</td>
+                    <td className="small">{(field === 'created' ? item.createdBy : item.modifiedBy) || '—'}</td>
+                    <td className="td-r">{fmtBytes(item.sizeBytes)}</td>
+                    <td className="td-r">{(item.versionCount ?? 0).toLocaleString('pt-BR')}</td>
+                    <td className="td-r">{fmtBytes(item.versionsBytes ?? 0)}</td>
+                    <td className="td-r"><strong>{fmtBytes(item.totalBytes)}</strong></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
-    </div>
+      </div>
+    </>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { display: 'grid', gap: 14, color: '#172033' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'start' },
-  title: { margin: 0, fontSize: 24 },
-  subtitle: { margin: '4px 0 0', color: '#5b6475', fontSize: 12 },
-  link: { color: '#2563a8', fontWeight: 700, textDecoration: 'none' },
-  panel: { background: '#fff', border: '1px solid #cbd2dc', borderRadius: 8, overflow: 'hidden' },
-  controls: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', padding: 14 },
-  field: { display: 'grid', gap: 5, minWidth: 150, fontSize: 11, fontWeight: 700, color: '#4c5668' },
-  range: { padding: '0 14px 12px', color: '#5b6475', fontSize: 11 },
-  warning: { padding: '10px 14px', background: '#fffbeb', border: '1px solid #f5c451', borderRadius: 7, color: '#754d00', fontSize: 12 },
-  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#f7f9fb', borderBottom: '1px solid #cbd2dc' },
-  panelTitle: { margin: 0, fontSize: 15 },
-  badge: { padding: '3px 8px', borderRadius: 12, background: '#2563a8', color: '#fff', fontSize: 11, fontWeight: 700 },
-  state: { padding: 28, textAlign: 'center', color: '#5b6475' },
-  error: { padding: 16, color: '#b42318', fontWeight: 700 },
-  tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 11 },
-  path: { display: 'block', marginTop: 3, color: '#687386', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' },
-};
