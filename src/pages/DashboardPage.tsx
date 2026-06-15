@@ -15,9 +15,11 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { RefreshCw, X, ArrowRight, Plus, Globe, Database, BarChart3, TrendingUp, CalendarClock } from 'lucide-react';
 import { listScans, createScan, getScanStatus, cancelScan } from '../api/scans.api';
 import { getInventorySummary, getTopFiles, getInventorySites } from '../api/inventory.api';
 import { ApiClientError } from '../api/client';
+import { PageHead, Kpi, Card, Btn, Field } from '../components/ui';
 import type { Scan, ScanStatusDetail, ScanProgress, InventorySummary, FileItem, SiteRollup } from '../types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -87,22 +89,13 @@ function flowTone(
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
-interface KpiCardProps {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: string;
-}
-
-function KpiCard({ label, value, hint, accent = C.accent }: KpiCardProps) {
-  return (
-    <div style={s.kpi}>
-      <div style={s.kpiLabel}>{label}</div>
-      <div style={{ ...s.kpiValue, color: accent }}>{value}</div>
-      {hint && <div style={s.kpiHint}>{hint}</div>}
-    </div>
-  );
-}
+const TONE_COLOR: Record<FlowTone, string> = {
+  idle: 'var(--faint)',
+  run:  'var(--accent)',
+  done: 'var(--good)',
+  warn: 'var(--warn)',
+  bad:  'var(--bad)',
+};
 
 interface FlowNodeProps {
   label: string;
@@ -112,27 +105,13 @@ interface FlowNodeProps {
 }
 
 function FlowNode({ label, value, sub, tone }: FlowNodeProps) {
-  const dotColor: Record<FlowTone, string> = {
-    idle: '#9ca3af',
-    run: C.accent,
-    done: C.good,
-    warn: C.warn,
-    bad: C.bad,
-  };
-  const bg: Record<FlowTone, string> = {
-    idle: '#f1f5f9',
-    run: '#eff6ff',
-    done: '#f0fff4',
-    warn: '#fffaf0',
-    bad: '#fff5f5',
-  };
   return (
-    <div style={{ ...s.flowNode, background: bg[tone] }}>
-      <span style={{ ...s.flowDot, background: dotColor[tone] }} />
+    <div className="flow-node">
+      <span className="dot" style={{ background: TONE_COLOR[tone] }} />
       <div>
-        <div style={s.flowLabel}>{label}</div>
-        <div style={{ ...s.flowValue, color: dotColor[tone] }}>{value}</div>
-        <div style={s.flowSub}>{sub}</div>
+        <div className="flow-label">{label}</div>
+        <div className="flow-value" style={{ color: TONE_COLOR[tone] }}>{value}</div>
+        <div className="flow-sub">{sub}</div>
       </div>
     </div>
   );
@@ -290,151 +269,123 @@ export default function DashboardPage(): React.ReactElement {
     failed: 'Com falha', cancelled: 'Cancelado',
   };
   const statusColor: Record<string, string> = {
-    pending: C.warn, running: C.accent, completed: C.good,
-    failed: C.bad, cancelled: '#6b7280',
+    pending: 'var(--warn)', running: 'var(--accent)', completed: 'var(--good)',
+    failed: 'var(--bad)', cancelled: 'var(--muted)',
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
-    return <div style={s.loading}>Carregando dashboard…</div>;
+    return <div style={{ display: 'grid', placeItems: 'center', height: '50vh', color: 'var(--muted)' }}>Carregando dashboard…</div>;
   }
 
   return (
-    <div style={s.page}>
+    <div className="stack">
 
       {/* Toast */}
       {toast && (
-        <div style={{ ...s.toast, background: toast.kind === 'ok' ? '#f0fff4' : '#fff5f5', borderColor: toast.kind === 'ok' ? '#c6f6d5' : '#fed7d7', color: toast.kind === 'ok' ? C.good : C.bad }}>
+        <div
+          className={'toast pill-' + (toast.kind === 'ok' ? 'good' : 'bad')}
+          style={{ background: toast.kind === 'ok' ? 'var(--good-bg)' : 'var(--bad-bg)', borderColor: toast.kind === 'ok' ? 'var(--good-bd)' : 'var(--bad-bd)', color: toast.kind === 'ok' ? 'var(--good)' : 'var(--bad)' }}
+        >
           {toast.msg}
         </div>
       )}
 
       {/* ── Cabeçalho ──────────────────────────────────────────────────────── */}
-      <div style={s.topbar}>
-        <div>
-          <h1 style={s.title}>Dashboard</h1>
-          <p style={s.subtitle}>Visão geral do consumo e inventário</p>
-        </div>
-        <div style={s.topActions}>
-          {/* Seletor de scan */}
-          <div style={s.scanSelectWrap}>
-            <label style={s.scanSelectLabel}>Base do scan</label>
-            <select
-              style={s.scanSelect}
-              value={scanId ?? ''}
-              onChange={e => setScanId(e.target.value)}
-            >
-              {scans.length === 0 && <option value="">Nenhum scan encontrado</option>}
-              {scans.map(sc => (
-                <option key={sc.id} value={sc.id}>
-                  {sc.id.slice(0, 8)} — {statusLabel[sc.status] ?? sc.status} — {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* Botões de ação */}
-          <div style={s.btnGroup}>
-            <button style={s.btnSecondary} onClick={handleRefresh} title="Atualizar dados">
-              ↺ Atualizar
-            </button>
-            {isActive && (
-              <button style={{ ...s.btnSecondary, borderColor: '#fca5a5', color: C.bad }} onClick={handleCancel} disabled={cancelling}>
-                {cancelling ? 'Cancelando…' : '✕ Cancelar scan'}
-              </button>
-            )}
-            {isCompleted && scanId && (
-              <Link to={`/inventory/${scanId}`} style={s.btnAccent}>
-                Ir para Inventário →
-              </Link>
-            )}
-            <button style={s.btnAccent} onClick={handleNewScan} disabled={creating || isActive}>
-              {creating ? 'Iniciando…' : '+ Novo Scan'}
-            </button>
-          </div>
-        </div>
-      </div>
+      <PageHead title="Dashboard" sub="Visão geral do consumo e inventário">
+        <Field label="Base do scan">
+          <select
+            className="select"
+            style={{ minWidth: 280 }}
+            value={scanId ?? ''}
+            onChange={e => setScanId(e.target.value)}
+          >
+            {scans.length === 0 && <option value="">Nenhum scan encontrado</option>}
+            {scans.map(sc => (
+              <option key={sc.id} value={sc.id}>
+                {sc.id.slice(0, 8)} — {statusLabel[sc.status] ?? sc.status} — {new Date(sc.createdAt).toLocaleDateString('pt-BR')}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Btn icon={RefreshCw} onClick={handleRefresh} title="Atualizar dados">Atualizar</Btn>
+        {isActive && (
+          <Btn icon={X} variant="danger" onClick={handleCancel} disabled={cancelling}>
+            {cancelling ? 'Cancelando…' : 'Cancelar scan'}
+          </Btn>
+        )}
+        {isCompleted && scanId && (
+          <Link to={`/inventory/${scanId}`} className="btn btn-primary"><ArrowRight size={14} />Ir para Inventário</Link>
+        )}
+        <Btn icon={Plus} variant="primary" onClick={handleNewScan} disabled={creating || isActive}>
+          {creating ? 'Iniciando…' : 'Novo Scan'}
+        </Btn>
+      </PageHead>
 
       {/* Última atualização */}
       {lastUpdated && (
-        <div style={s.lastUpdated}>
-          <span style={{ ...s.pill, background: isActive ? '#f0fff4' : '#eff6ff', color: isActive ? C.good : C.accent }}>
-            {isActive ? '● Ao vivo' : '○ Snapshot'}
+        <div className="row small muted">
+          <span className={'pill ' + (isActive ? 'pill-good' : 'pill-info')}>
+            <span className="dot" />{isActive ? 'Ao vivo' : 'Snapshot'}
           </span>
-          Atualizado: {lastUpdated.toLocaleTimeString('pt-BR')}
-          {isActive && <span style={{ color: C.muted }}> — atualização automática a cada 8 s</span>}
+          <span>Atualizado: {lastUpdated.toLocaleTimeString('pt-BR')}</span>
+          {isActive && <span className="faint">— atualização automática a cada 8 s</span>}
         </div>
       )}
 
       {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
-      <div style={s.kpis}>
-        <KpiCard label="Sites" value={fmtNum(sites)}  hint={`${fmtNum(p?.totalSites ?? selectedScan?.totalSites)} total`} />
-        <KpiCard label="Drives" value={fmtNum(drives)} hint={`${fmtNum(p?.totalDrives ?? selectedScan?.totalDrives)} total`} />
-        <KpiCard label="Arquivos" value={fmtNum(files)} accent={C.text} />
-        <KpiCard label="Volume total" value={fmtBytes(bytes)} accent={C.text} />
+      <div className="kpi-grid">
+        <Kpi label="Sites" value={fmtNum(sites)} hint={`${fmtNum(p?.totalSites ?? selectedScan?.totalSites)} total`} icon={Globe} />
+        <Kpi label="Drives" value={fmtNum(drives)} hint={`${fmtNum(p?.totalDrives ?? selectedScan?.totalDrives)} total`} icon={Database} />
+        <Kpi label="Arquivos" value={fmtNum(files)} icon={BarChart3} color="var(--text)" />
+        <Kpi label="Volume total" value={fmtBytes(bytes)} icon={TrendingUp} color="var(--text)" />
         {p?.versioningEnabled && (
-          <KpiCard
+          <Kpi
             label="Versões"
             value={fmtNum(p.versionsDone)}
             hint={`${fmtNum(p.versionsTotal)} total • ${fmtBytes(p.versionsBytes)}`}
+            icon={CalendarClock}
           />
         )}
-        <div style={s.kpiStatus}>
-          <div style={s.kpiLabel}>Status do scan</div>
-          <div style={{ ...s.kpiValue, color: statusColor[selectedScan?.status ?? ''] ?? C.muted }}>
+        <div className="kpi">
+          <div className="kpi-top"><div className="kpi-label">Status do scan</div></div>
+          <div className="kpi-value" style={{ color: statusColor[selectedScan?.status ?? ''] ?? 'var(--muted)' }}>
             {statusLabel[selectedScan?.status ?? ''] ?? '—'}
           </div>
-          {selectedScan?.finishedAt && (
-            <div style={s.kpiHint}>Concluído {fmtDate(selectedScan.finishedAt)}</div>
-          )}
-          {selectedScan?.startedAt && !selectedScan?.finishedAt && (
-            <div style={s.kpiHint}>Iniciado {fmtDate(selectedScan.startedAt)}</div>
-          )}
+          {selectedScan?.finishedAt && <div className="kpi-hint">Concluído {fmtDate(selectedScan.finishedAt)}</div>}
+          {selectedScan?.startedAt && !selectedScan?.finishedAt && <div className="kpi-hint">Iniciado {fmtDate(selectedScan.startedAt)}</div>}
         </div>
       </div>
 
       {/* ── Progresso do scan (apenas se ativo) ────────────────────────────── */}
       {isActive && (
-        <div style={s.card}>
-          <div style={s.cardHead}>
-            <div>
-              <div style={s.cardTitle}>Progresso da varredura</div>
-              {p?.activity && <div style={s.cardSub}>{p.activity}</div>}
-            </div>
-            <div style={{ ...s.pctBadge, background: pct > 80 ? '#f0fff4' : '#eff6ff' }}>
-              <span style={{ color: pct > 80 ? C.good : C.accent, fontWeight: 800 }}>{pct}%</span>
-            </div>
+        <Card
+          title="Progresso da varredura"
+          sub={p?.activity}
+          right={<span className="pill pill-info" style={{ fontSize: 'var(--fs-base)' }}>{pct}%</span>}
+        >
+          <div className="track" style={{ marginBottom: 'var(--gap-sm)' }}>
+            <div className="fill" style={{ width: `${pct}%`, background: pct > 80 ? 'var(--good)' : 'var(--accent)' }} />
           </div>
-
-          {/* Barra de progresso */}
-          <div style={s.progressTrack}>
-            <div style={{ ...s.progressFill, width: `${pct}%`, background: pct > 80 ? C.good : C.accent }} />
-          </div>
-
-          {/* Fluxo: Sites → Drives → Arquivos → Final */}
-          <div style={s.flow}>
+          <div className="flow">
             <FlowNode
               label="Sites"
               value={`${fmtNum(p?.doneSites)}/${fmtNum(p?.totalSites)}`}
               sub="Sites processados"
               tone={flowTone(p?.doneSites, p?.totalSites, flowIsActive && String(p?.stage).includes('SITE'), hasError)}
             />
-            <span style={s.flowArrow}>→</span>
+            <span className="flow-arrow"><ArrowRight size={14} /></span>
             <FlowNode
               label="Drives"
               value={`${fmtNum(p?.doneDrives)}/${fmtNum(p?.totalDrives)}`}
               sub="Bibliotecas lidas"
               tone={flowTone(p?.doneDrives, p?.totalDrives, flowIsActive && !String(p?.stage).includes('SITE'), hasError)}
             />
-            <span style={s.flowArrow}>→</span>
-            <FlowNode
-              label="Arquivos"
-              value={fmtNum(p?.files)}
-              sub={fmtBytes(p?.bytes)}
-              tone={p?.files ? 'run' : 'idle'}
-            />
+            <span className="flow-arrow"><ArrowRight size={14} /></span>
+            <FlowNode label="Arquivos" value={fmtNum(p?.files)} sub={fmtBytes(p?.bytes)} tone={p?.files ? 'run' : 'idle'} />
             {p?.versioningEnabled && (
               <>
-                <span style={s.flowArrow}>→</span>
+                <span className="flow-arrow"><ArrowRight size={14} /></span>
                 <FlowNode
                   label="Versões"
                   value={`${fmtNum(p.versionsDone)}/${fmtNum(p.versionsTotal)}`}
@@ -443,81 +394,55 @@ export default function DashboardPage(): React.ReactElement {
                 />
               </>
             )}
-            <span style={s.flowArrow}>→</span>
-            <FlowNode
-              label="Final"
-              value={isCompleted ? '✓' : '…'}
-              sub={isCompleted ? 'Base pronta' : 'Aguardando'}
-              tone={isCompleted ? 'done' : 'idle'}
-            />
+            <span className="flow-arrow"><ArrowRight size={14} /></span>
+            <FlowNode label="Final" value={isCompleted ? '✓' : '…'} sub={isCompleted ? 'Base pronta' : 'Aguardando'} tone={isCompleted ? 'done' : 'idle'} />
           </div>
-        </div>
+        </Card>
       )}
 
       {/* ── Linha inferior: Top Extensões + Top Arquivos ────────────────────── */}
       {(topExt.length > 0 || topFiles.length > 0) && (
-        <div style={s.twoCol}>
+        <div className="two-col">
 
-          {/* Top extensões */}
           {topExt.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
-                <div>
-                  <div style={s.cardTitle}>Extensões mais frequentes</div>
-                  <div style={s.cardSub}>Por quantidade de arquivos</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Card title="Extensões mais frequentes" sub="Por quantidade de arquivos">
+              <div className="stack" style={{ gap: 8 }}>
                 {topExt.map(ext => {
                   const pctExt = Math.round((ext.fileCount / maxExt) * 100);
                   return (
                     <div key={ext.extension}>
-                      <div style={s.extRow}>
-                        <span style={s.extName}>{ext.extension || '(sem extensão)'}</span>
-                        <span style={s.extCount}>{fmtNum(ext.fileCount)} arq.</span>
-                        <span style={s.extBytes}>{fmtBytes(ext.totalBytes)}</span>
+                      <div className="row" style={{ marginBottom: 3, gap: 6 }}>
+                        <span className="mono" style={{ fontWeight: 700, minWidth: 60 }}>{ext.extension || '(sem extensão)'}</span>
+                        <span className="spacer" />
+                        <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
+                        <span className="small faint" style={{ minWidth: 70, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
                       </div>
-                      <div style={s.extTrack}>
-                        <div style={{ ...s.extFill, width: `${pctExt}%` }} />
-                      </div>
+                      <div className="bar-track"><div className="bar-fill" style={{ width: `${pctExt}%` }} /></div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </Card>
           )}
 
-          {/* Top maiores arquivos */}
           {topFiles.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
-                <div>
-                  <div style={s.cardTitle}>Top 10 maiores arquivos</div>
-                  <div style={s.cardSub}>Clique no nome para abrir no SharePoint</div>
-                </div>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={s.table}>
+            <Card title="Top 10 maiores arquivos" sub="Clique no nome para abrir no SharePoint">
+              <div className="tbl-wrap">
+                <table className="tbl">
                   <thead>
-                    <tr>
-                      <th style={s.th}>#</th>
-                      <th style={s.th}>Nome</th>
-                      <th style={s.th}>Ext.</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Tamanho</th>
-                    </tr>
+                    <tr><th>#</th><th>Nome</th><th>Ext.</th><th className="td-r">Tamanho</th></tr>
                   </thead>
                   <tbody>
                     {topFiles.map((f, i) => (
-                      <tr key={f.id ?? i} style={s.tr}>
-                        <td style={{ ...s.td, color: C.muted, width: 28 }}>{i + 1}</td>
-                        <td style={{ ...s.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <tr key={f.id ?? i}>
+                        <td className="td-mute" style={{ width: 28 }}>{i + 1}</td>
+                        <td className="td-ellipsis" style={{ maxWidth: 240 }}>
                           {f.webUrl
-                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a>
-                            : <span style={{ color: C.text }}>{f.name}</span>
-                          }
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
+                            : f.name}
                         </td>
-                        <td style={{ ...s.td, color: C.muted }}>{f.extension || '—'}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.totalBytes)}</td>
+                        <td className="td-mute">{f.extension || '—'}</td>
+                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -525,10 +450,10 @@ export default function DashboardPage(): React.ReactElement {
               </div>
               {isCompleted && scanId && (
                 <div style={{ marginTop: 10, textAlign: 'right' }}>
-                  <Link to={`/inventory/${scanId}`} style={s.viewAll}>Ver inventário completo →</Link>
+                  <Link to={`/inventory/${scanId}`} className="td-link small" style={{ fontWeight: 650 }}>Ver inventário completo →</Link>
                 </div>
               )}
-            </div>
+            </Card>
           )}
 
         </div>
@@ -536,106 +461,77 @@ export default function DashboardPage(): React.ReactElement {
 
       {/* ── Gráficos adicionais ─────────────────────────────────────────────── */}
 
-      {/* Top 20 sites por utilização */}
       {topSites.length > 0 && (
-        <div style={s.card}>
-          <div style={s.cardHead}>
-            <div>
-              <div style={s.cardTitle}>Top 20 sites por utilização</div>
-              <div style={s.cardSub}>Volume total de arquivos (scan selecionado)</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <Card title="Top 20 sites por utilização" sub="Volume total de arquivos (scan selecionado)">
+          <div className="stack" style={{ gap: 7 }}>
             {topSites.map((site, i) => {
               const maxBytes = topSites[0]?.totalBytes ?? 1;
               const pct = Math.round(((site.totalBytes ?? 0) / maxBytes) * 100);
               return (
                 <div key={site.siteId}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <span style={{ fontSize: 10, color: C.muted, width: 18, textAlign: 'right' }}>{i + 1}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
-                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{fmtNum(site.totalFiles)} arq.</span>
-                    <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap', minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
+                  <div className="row" style={{ gap: 6, marginBottom: 2 }}>
+                    <span className="faint" style={{ width: 18, textAlign: 'right' }}>{i + 1}</span>
+                    <span style={{ fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
+                    <span className="small muted" style={{ whiteSpace: 'nowrap' }}>{fmtNum(site.totalFiles)} arq.</span>
+                    <span className="small muted" style={{ whiteSpace: 'nowrap', minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
                   </div>
-                  <div style={{ height: 5, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden', marginLeft: 24 }}>
-                    <div style={{ height: '100%', borderRadius: 2, background: C.accent, width: `${pct}%`, transition: 'width .3s ease' }} />
-                  </div>
+                  <div className="bar-track" style={{ marginLeft: 24 }}><div className="bar-fill" style={{ width: `${pct}%` }} /></div>
                 </div>
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Top 10 extensões por espaço + Top 20 arquivos com mais versões */}
       {(topExtByBytes.length > 0 || topVersioned.length > 0) && (
-        <div style={s.twoCol}>
+        <div className="two-col">
 
           {topExtByBytes.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
-                <div>
-                  <div style={s.cardTitle}>Top 10 extensões por espaço usado</div>
-                  <div style={s.cardSub}>Volume total (arquivos + versões)</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Card title="Top 10 extensões por espaço usado" sub="Volume total (arquivos + versões)">
+              <div className="stack" style={{ gap: 8 }}>
                 {topExtByBytes.map(ext => {
                   const pctExt = Math.round(((ext.totalBytes ?? 0) / maxExtBytes) * 100);
                   return (
                     <div key={ext.extension}>
-                      <div style={s.extRow}>
-                        <span style={s.extName}>{ext.extension || '(sem extensão)'}</span>
-                        <span style={s.extCount}>{fmtNum(ext.fileCount)} arq.</span>
-                        <span style={s.extBytes}>{fmtBytes(ext.totalBytes)}</span>
+                      <div className="row" style={{ marginBottom: 3, gap: 6 }}>
+                        <span className="mono" style={{ fontWeight: 700, minWidth: 60 }}>{ext.extension || '(sem extensão)'}</span>
+                        <span className="spacer" />
+                        <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
+                        <span className="small faint" style={{ minWidth: 70, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
                       </div>
-                      <div style={s.extTrack}>
-                        <div style={{ ...s.extFill, width: `${pctExt}%`, background: '#2f855a' }} />
-                      </div>
+                      <div className="bar-track"><div className="bar-fill" style={{ width: `${pctExt}%`, background: 'var(--good)' }} /></div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </Card>
           )}
 
           {topVersioned.length > 0 && (
-            <div style={s.card}>
-              <div style={s.cardHead}>
-                <div>
-                  <div style={s.cardTitle}>Top 20 arquivos com mais versões</div>
-                  <div style={s.cardSub}>Últimos 30 dias (scan selecionado)</div>
-                </div>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={s.table}>
+            <Card title="Top 20 arquivos com mais versões" sub="Últimos 30 dias (scan selecionado)">
+              <div className="tbl-wrap">
+                <table className="tbl">
                   <thead>
-                    <tr>
-                      <th style={s.th}>#</th>
-                      <th style={s.th}>Nome</th>
-                      <th style={s.th}>Ext.</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Versões</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Total</th>
-                    </tr>
+                    <tr><th>#</th><th>Nome</th><th>Ext.</th><th className="td-r">Versões</th><th className="td-r">Total</th></tr>
                   </thead>
                   <tbody>
                     {topVersioned.map((f, i) => (
-                      <tr key={f.id ?? i} style={s.tr}>
-                        <td style={{ ...s.td, color: C.muted, width: 24 }}>{i + 1}</td>
-                        <td style={{ ...s.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <tr key={f.id ?? i}>
+                        <td className="td-mute" style={{ width: 24 }}>{i + 1}</td>
+                        <td className="td-ellipsis" style={{ maxWidth: 200 }}>
                           {f.webUrl
-                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" style={s.fileLink}>{f.name}</a>
-                            : <span style={{ color: C.text }}>{f.name}</span>}
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
+                            : f.name}
                         </td>
-                        <td style={{ ...s.td, color: C.muted }}>{f.extension || '—'}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(f.versionCount)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(f.totalBytes)}</td>
+                        <td className="td-mute">{f.extension || '—'}</td>
+                        <td className="td-r">{fmtNum(f.versionCount)}</td>
+                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Card>
           )}
 
         </div>
@@ -643,107 +539,15 @@ export default function DashboardPage(): React.ReactElement {
 
       {/* Estado vazio */}
       {scans.length === 0 && !loading && (
-        <div style={s.empty}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem 0', textAlign: 'center' }}>
           <p style={{ fontWeight: 700, marginBottom: 8 }}>Nenhum scan encontrado.</p>
-          <p style={{ color: C.muted, marginBottom: 16 }}>Inicie a primeira varredura do tenant SharePoint.</p>
-          <button style={s.btnAccent} onClick={handleNewScan} disabled={creating}>
-            {creating ? 'Iniciando…' : '+ Iniciar Primeiro Scan'}
-          </button>
+          <p className="muted" style={{ marginBottom: 16 }}>Inicie a primeira varredura do tenant SharePoint.</p>
+          <Btn icon={Plus} variant="primary" onClick={handleNewScan} disabled={creating}>
+            {creating ? 'Iniciando…' : 'Iniciar Primeiro Scan'}
+          </Btn>
         </div>
       )}
 
     </div>
   );
 }
-
-// ─── Design tokens (espelho do styles.css legado) ─────────────────────────────
-
-const C = {
-  bg:     '#eef1f5',
-  panel:  '#ffffff',
-  border: '#c8ced8',
-  accent: '#2b6cb0',
-  text:   '#1a202c',
-  muted:  '#4a5568',
-  good:   '#276749',
-  warn:   '#c05621',
-  bad:    '#c53030',
-};
-
-const s: Record<string, React.CSSProperties> = {
-  page:    { display: 'flex', flexDirection: 'column', gap: 14, fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", fontSize: 13, color: C.text },
-  loading: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh', color: C.muted },
-
-  /* Topbar */
-  topbar:      { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${C.border}`, paddingBottom: 14, flexWrap: 'wrap' },
-  title:       { fontSize: 17, fontWeight: 700, letterSpacing: '.01em', margin: 0 },
-  subtitle:    { color: C.muted, fontSize: 11, margin: '3px 0 0', letterSpacing: '.02em' },
-  topActions:  { display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' },
-
-  /* Scan selector */
-  scanSelectWrap:  { display: 'flex', flexDirection: 'column', gap: 3 },
-  scanSelectLabel: { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em' },
-  scanSelect:      { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12, background: '#fff', color: C.text, minWidth: 280, cursor: 'pointer' },
-
-  /* Botões */
-  btnGroup:     { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-  btnSecondary: { padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 4, background: '#f7f9fb', color: C.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', fontFamily: 'inherit' },
-  btnAccent:    { padding: '6px 12px', border: 'none', borderRadius: 4, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'none', display: 'inline-block', fontFamily: 'inherit' },
-
-  /* Status */
-  lastUpdated: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: C.muted },
-  pill:        { padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, border: '1px solid transparent' },
-
-  /* KPIs */
-  kpis:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 },
-  kpi:        { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  kpiStatus:  { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  kpiLabel:   { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 },
-  kpiValue:   { fontSize: 22, fontWeight: 800, color: C.accent, lineHeight: 1.2 },
-  kpiHint:    { fontSize: 10, color: C.muted, marginTop: 3 },
-
-  /* Cards */
-  card:     { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' },
-  cardHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10, borderBottom: `1px solid #e8ecf1`, paddingBottom: 8 },
-  cardTitle:{ fontWeight: 700, fontSize: 13, letterSpacing: '.01em' },
-  cardSub:  { color: C.muted, fontSize: 11, marginTop: 3 },
-
-  /* Progresso */
-  pctBadge:     { padding: '4px 12px', borderRadius: 20, border: `1px solid ${C.border}` },
-  progressTrack:{ height: 8, borderRadius: 2, background: '#e2e8f0', border: `1px solid ${C.border}`, overflow: 'hidden', marginBottom: 12 },
-  progressFill: { height: '100%', borderRadius: 2, transition: 'width .5s ease' },
-
-  /* Flow */
-  flow:      { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  flowArrow: { color: C.muted, fontSize: 18, userSelect: 'none' },
-  flowNode:  { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 4, border: `1px solid ${C.border}`, flex: '1 1 120px', minWidth: 100 },
-  flowDot:   { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
-  flowLabel: { fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' },
-  flowValue: { fontSize: 16, fontWeight: 800, lineHeight: 1.2 },
-  flowSub:   { fontSize: 10, color: C.muted },
-
-  /* Layout 2 colunas */
-  twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
-
-  /* Top extensões */
-  extRow:   { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 },
-  extName:  { fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: C.text, minWidth: 60 },
-  extCount: { fontSize: 11, color: C.muted, marginLeft: 'auto', whiteSpace: 'nowrap' },
-  extBytes: { fontSize: 11, color: C.muted, whiteSpace: 'nowrap', minWidth: 70, textAlign: 'right' },
-  extTrack: { height: 5, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden', marginBottom: 2 },
-  extFill:  { height: '100%', borderRadius: 2, background: C.accent, transition: 'width .3s ease' },
-
-  /* Tabela top arquivos */
-  table:    { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th:       { padding: '6px 8px', background: '#f7f9fb', fontWeight: 700, color: C.muted, textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' },
-  tr:       { borderBottom: `1px solid #f1f5f9` },
-  td:       { padding: '6px 8px', color: C.text },
-  fileLink: { color: C.accent, textDecoration: 'none' },
-  viewAll:  { color: C.accent, textDecoration: 'none', fontSize: 12, fontWeight: 600 },
-
-  /* Toast */
-  toast:  { position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '10px 16px', borderRadius: 6, border: '1px solid', fontSize: 13, fontWeight: 600, boxShadow: '0 4px 12px rgba(0,0,0,.12)', maxWidth: 360 },
-
-  /* Empty state */
-  empty:  { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem 0', textAlign: 'center' },
-};
