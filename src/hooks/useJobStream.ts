@@ -196,6 +196,10 @@ export function useJobStream(
 
     return () => {
       disposed = true;
+      es.removeEventListener('message', handleMessage);
+      es.removeEventListener('progress', handleMessage);
+      es.removeEventListener('done', handleMessage);
+      es.onerror = null;
       es.close();
       if (pollTimer) clearTimeout(pollTimer);
       if (fallbackTimer) clearTimeout(fallbackTimer);
