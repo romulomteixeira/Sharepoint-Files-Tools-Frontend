@@ -47,20 +47,20 @@ import { ApiClientError } from '../api/client';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const C = {
-  bg:     '#eef1f5',
-  panel:  '#ffffff',
-  border: '#c8ced8',
-  accent: '#2b6cb0',
-  text:   '#1a202c',
-  muted:  '#4a5568',
-  good:   '#276749',
-  warn:   '#c05621',
-  bad:    '#c53030',
+  bg:     'var(--bg)',
+  panel:  'var(--panel)',
+  border: 'var(--border)',
+  accent: 'var(--accent)',
+  text:   'var(--text)',
+  muted:  'var(--muted)',
+  good:   'var(--good)',
+  warn:   'var(--warn)',
+  bad:    'var(--bad)',
 } as const;
 
-const DANGER        = '#991b1b';
-const DANGER_BG     = '#fff5f5';
-const DANGER_BORDER = '#fca5a5';
+const DANGER        = 'var(--bad)';
+const DANGER_BG     = 'var(--bad-bg)';
+const DANGER_BORDER = 'var(--bad-bd)';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
