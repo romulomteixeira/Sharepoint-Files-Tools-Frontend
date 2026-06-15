@@ -121,8 +121,29 @@ describe('SitesPage', () => {
     expect(screen.getByText('3 KB')).toBeInTheDocument();
   });
 
-  it('envia o pageSize selecionado ao backend no drill-down', async () => {
-    const requestedSizes: string[] = [];
+  it('agrega todas as páginas do site no drill-down', async () => {
+    const requestedPages: string[] = [];
+    const fileOnPage = (page: number) => ({
+      scanId: 'scan-1',
+      siteId: 'site-1',
+      siteName: 'Site 1',
+      siteUrl: 'https://tenant/sites/site-1',
+      driveId: 'drive-1',
+      driveName: 'Documentos',
+      itemId: `item-${page}`,
+      name: `arquivo-pagina-${page}.pdf`,
+      extension: 'pdf',
+      fullPath: `/Documentos/arquivo-pagina-${page}.pdf`,
+      sizeBytes: 1024,
+      created: '2026-06-01T10:00:00Z',
+      modified: '2026-06-10T10:00:00Z',
+      createdBy: 'Ana',
+      modifiedBy: 'Ana',
+      versionCount: 1,
+      versionsBytes: 0,
+      totalBytes: 1024,
+    });
+
     server.use(
       http.get('/api/inventory/sites/latest', () => HttpResponse.json({
         page: 1,
@@ -132,15 +153,15 @@ describe('SitesPage', () => {
         items: [site(1)],
       })),
       http.get('/api/inventory/sites/latest/:siteId/files', ({ request }) => {
-        const size = new URL(request.url).searchParams.get('pageSize') ?? '';
-        requestedSizes.push(size);
+        const page = new URL(request.url).searchParams.get('page') ?? '1';
+        requestedPages.push(page);
         return HttpResponse.json({
           site: { ...site(1) },
-          page: 1,
-          pageSize: Number(size) || 50,
-          totalFiles: 1,
-          totalPages: 1,
-          libraries: [{ driveId: 'drive-1', driveName: 'Documentos', files: [] }],
+          page: Number(page),
+          pageSize: 100,
+          totalFiles: 2,
+          totalPages: 2,
+          libraries: [{ driveId: 'drive-1', driveName: 'Documentos', files: [fileOnPage(Number(page))] }],
         });
       }),
     );
@@ -150,13 +171,9 @@ describe('SitesPage', () => {
     fireEvent.click(screen.getByLabelText('Selecionar Site 1'));
     fireEvent.click(screen.getByRole('button', { name: 'Abrir drill-down' }));
 
-    await screen.findByText('Documentos');
-    expect(requestedSizes).toContain('50');
-
-    fireEvent.change(screen.getByLabelText('Itens por página'), { target: { value: '200' } });
-
-    await waitFor(() => {
-      expect(requestedSizes).toContain('200');
-    });
+    // Arquivos das duas páginas do backend devem aparecer juntos (agregação client-side).
+    expect(await screen.findByText('arquivo-pagina-1.pdf')).toBeInTheDocument();
+    expect(screen.getByText('arquivo-pagina-2.pdf')).toBeInTheDocument();
+    expect(requestedPages).toEqual(['1', '2']);
   });
 });
