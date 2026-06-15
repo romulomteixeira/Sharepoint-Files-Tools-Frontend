@@ -6,6 +6,34 @@
     <meta name="description" content="SharePoint Monitor — Monitoramento e inventário de arquivos SharePoint" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>SharePoint Monitor</title>
+    <script>
+      /* Aplica as preferências do usuário no <html> antes do primeiro paint (evita flash). */
+      (function () {
+        var ACCENTS = {
+          original: { light: '#2b6cb0', dark: '#5b9bd9' },
+          fluent:   { light: '#0f6cbd', dark: '#479ef5' },
+          deep:     { light: '#1e548f', dark: '#7fb3e3' },
+          teal:     { light: '#0d7377', dark: '#3fc1c9' },
+        };
+        var d = {
+          theme: 'light', variation: 'b', density: 'compact',
+          sidebar: 'expanded', accent: 'original', radius: 100,
+        };
+        try {
+          var saved = JSON.parse(localStorage.getItem('spm-prefs') || '{}');
+          for (var k in d) if (saved[k] != null) d[k] = saved[k];
+        } catch (e) {}
+        var el = document.documentElement;
+        el.setAttribute('data-theme', d.theme);
+        el.setAttribute('data-variation', d.variation);
+        el.setAttribute('data-density', d.density);
+        el.setAttribute('data-sidebar', d.sidebar);
+        el.style.setProperty('--r-scale', String(d.radius / 100));
+        var acc = ACCENTS[d.accent] || ACCENTS.original;
+        el.style.setProperty('--accent', d.theme === 'dark' ? acc.dark : acc.light);
+        el.style.setProperty('--accent-side', acc.dark);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

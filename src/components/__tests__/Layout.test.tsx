@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import Layout from '../Layout';
 import { useAuth } from '../../contexts/AuthContext';
+import { PreferencesProvider } from '../../contexts/PreferencesContext';
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/auth.api', () => ({ logout: vi.fn() }));
@@ -25,13 +26,15 @@ describe('Layout', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<div>Dashboard</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
+      <PreferencesProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<div>Dashboard</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </PreferencesProvider>,
     );
 
     expect(screen.getByText('Operador QA')).toHaveAttribute('id', 'currentUserDisplay');
