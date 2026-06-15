@@ -120,4 +120,43 @@ describe('SitesPage', () => {
     expect(screen.getByText('2 KB')).toBeInTheDocument();
     expect(screen.getByText('3 KB')).toBeInTheDocument();
   });
+
+  it('envia o pageSize selecionado ao backend no drill-down', async () => {
+    const requestedSizes: string[] = [];
+    server.use(
+      http.get('/api/inventory/sites/latest', () => HttpResponse.json({
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+        items: [site(1)],
+      })),
+      http.get('/api/inventory/sites/latest/:siteId/files', ({ request }) => {
+        const size = new URL(request.url).searchParams.get('pageSize') ?? '';
+        requestedSizes.push(size);
+        return HttpResponse.json({
+          site: { ...site(1) },
+          page: 1,
+          pageSize: Number(size) || 50,
+          totalFiles: 1,
+          totalPages: 1,
+          libraries: [{ driveId: 'drive-1', driveName: 'Documentos', files: [] }],
+        });
+      }),
+    );
+
+    render(<SitesPage />);
+    await screen.findByText('Site 1');
+    fireEvent.click(screen.getByLabelText('Selecionar Site 1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir drill-down' }));
+
+    await screen.findByText('Documentos');
+    expect(requestedSizes).toContain('50');
+
+    fireEvent.change(screen.getByLabelText('Itens por página'), { target: { value: '200' } });
+
+    await waitFor(() => {
+      expect(requestedSizes).toContain('200');
+    });
+  });
 });

@@ -10,6 +10,9 @@ const stream = vi.hoisted(() => {
     addEventListener: vi.fn((type: string, listener: EventListener) => {
       listeners.set(type, listener);
     }),
+    removeEventListener: vi.fn((type: string) => {
+      listeners.delete(type);
+    }),
     onerror: null as ((event: Event) => void) | null,
   };
 });
@@ -24,6 +27,7 @@ describe("useJobStream", () => {
     stream.listeners.clear();
     stream.close.mockClear();
     stream.addEventListener.mockClear();
+    stream.removeEventListener.mockClear();
     stream.onerror = null;
     vi.useRealTimers();
   });
