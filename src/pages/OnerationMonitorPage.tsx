@@ -177,8 +177,8 @@ export default function OnerationMonitorPage(): React.ReactElement {
         )}
 
         {filtered.length > 0 && (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div className="tbl-wrap">
+            <table className="tbl" style={styles.table}>
               <thead>
                 <tr>
                   <th>#</th>
@@ -218,21 +218,21 @@ export default function OnerationMonitorPage(): React.ReactElement {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: 'grid', gap: 14, color: '#172033' },
+  page: { display: 'grid', gap: 'var(--gap)', color: 'var(--text)' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'start' },
-  title: { margin: 0, fontSize: 24 },
-  subtitle: { margin: '4px 0 0', color: '#5b6475', fontSize: 12 },
-  link: { color: '#2563a8', fontWeight: 700, textDecoration: 'none' },
-  panel: { background: '#fff', border: '1px solid #cbd2dc', borderRadius: 8, overflow: 'hidden' },
+  title: { margin: 0, fontSize: 'var(--title-size)', fontWeight: 750, letterSpacing: '-.01em' },
+  subtitle: { margin: '4px 0 0', color: 'var(--muted)', fontSize: 'var(--fs-sm)' },
+  link: { color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' },
+  panel: { background: 'var(--panel)', border: 'var(--card-border)', borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' },
   controls: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', padding: 14 },
-  field: { display: 'grid', gap: 5, minWidth: 150, fontSize: 11, fontWeight: 700, color: '#4c5668' },
-  range: { padding: '0 14px 12px', color: '#5b6475', fontSize: 11 },
-  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#f7f9fb', borderBottom: '1px solid #cbd2dc' },
-  panelTitle: { margin: 0, fontSize: 15 },
-  badge: { padding: '3px 8px', borderRadius: 12, background: '#2563a8', color: '#fff', fontSize: 11, fontWeight: 700 },
-  state: { padding: 28, textAlign: 'center', color: '#5b6475' },
-  error: { padding: 16, color: '#b42318', fontWeight: 700 },
+  field: { display: 'grid', gap: 5, minWidth: 150, fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--muted)' },
+  range: { padding: '0 14px 12px', color: 'var(--muted)', fontSize: 'var(--fs-xs)' },
+  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'var(--panel-2)', borderBottom: '1px solid var(--border)' },
+  panelTitle: { margin: 0, fontSize: 'calc(var(--fs-base) + 2px)' },
+  badge: { padding: '3px 8px', borderRadius: 'var(--r-pill)', background: 'var(--accent)', color: '#fff', fontSize: 'var(--fs-xs)', fontWeight: 700 },
+  state: { padding: 28, textAlign: 'center', color: 'var(--muted)' },
+  error: { padding: 16, color: 'var(--bad)', fontWeight: 700 },
   tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 11 },
-  path: { display: 'block', marginTop: 3, color: '#687386', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' },
+  path: { display: 'block', marginTop: 3, color: 'var(--faint)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' },
 };
