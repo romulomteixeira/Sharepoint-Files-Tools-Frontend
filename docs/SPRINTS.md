@@ -955,3 +955,69 @@ equivalente no React:
 - [x] Bloco 5 — frontend #38
 - [x] Bloco 6 — backend #77 e frontend #39
 - [x] Nenhuma operação destrutiva executada durante a homologação
+
+---
+
+## ✅ Sprint 25 — Drill-down de sites, gráficos do dashboard e expurgo por período
+
+**Commit:** `ad0bf70` (mesclado via PR #41 `fix/sprint-25-ui-improvements`)
+**Objetivo:** Aprofundar a análise por site, enriquecer o dashboard com gráficos e ampliar a
+simulação de expurgo de versões por intervalo de datas.
+
+### Entregáveis
+- `src/pages/SitesPage.tsx` — drill-down por site com busca por arquivo, ordenação
+  (tamanho / versões / total), paginação (50/100/200), exportação CSV + JSONL e gráfico de
+  barras por extensão
+- `src/pages/InventoryPage.tsx` — corrige `Cannot read properties of undefined (reading 'hasNextPage')`
+  com optional chaining no `pageInfo`
+- `src/pages/ExpurgoPage.tsx` + `src/api/purge.api.ts` — aba Versões com filtro por intervalo de
+  datas, input `keepVersions` e exportação CSV da simulação
+- `src/pages/DashboardPage.tsx` — três novos gráficos: top 20 sites por uso, top 10 extensões por
+  espaço e top 20 arquivos com mais versões
+
+### Nota
+Sprint entregue antes desta revisão e não registrada no momento do merge — documentada aqui
+retroativamente a partir do diff de `ad0bf70`.
+
+---
+
+## ✅ Sprint 26 — Correções pós-revisão (drill-down e hardening)
+
+**Branch:** `claude/gallant-gates-14mfq9`
+**Objetivo:** Corrigir os bugs encontrados na revisão das Sprints 10–25. A base já passava em
+`type-check`, `lint`, 43 testes e `build`; os achados eram de **lógica/UX**, não estruturais.
+
+### Diagnóstico da revisão
+
+| # | Severidade | Achado | Arquivo |
+|---|---|---|---|
+| 1 | 🔴 Alto | Drill-down do SitesPage travado em 50 arquivos: `loadDrilldown` chamava a API com `pageSize: 50` fixo e a paginação/seletor "Exibir" (50/100/200) só refatiavam client-side os 50 já buscados — sites com >50 arquivos nunca exibiam o restante. Causa raiz: `LatestSitesPageSize` (10\|30\|50\|100) não aceita `200`, então o `50` fixo era um contorno de tipo que quebrou a função. | `SitesPage.tsx`, `inventory.api.ts` |
+| 2 | 🟡 Baixo | `calcPercent` comparava string já em maiúsculas com literais minúsculos (`'completed'`, `'failed'`) — código morto e redundante. | `DashboardPage.tsx` |
+| 3 | 🟡 Baixo | `useJobStream` não removia listeners nem zerava `es.onerror` no cleanup (apenas `es.close()`). | `useJobStream.ts` |
+| 4 | 🟡 Baixo | `key` de linha em `TopFilesPage` incluía `index`, divergindo das páginas irmãs (`driveId:itemId`). | `TopFilesPage.tsx` |
+
+> **Falsos positivos descartados na revisão** (verificados no código, sem alteração): polling de
+> export em Inventory/Reports já tem guarda (`exportLoading` + `clearInterval`); o
+> `AbortController` de `client.ts` está correto; `normalizeExportStatus` trata caso misto via
+> `toUpperCase`; o auto-refresh do Dashboard depende da *string* de status (sem loop infinito).
+> A duplicação de `TERMINAL_JOB` no ExpurgoPage foi mantida (risco de regressão > benefício).
+
+### Correções aplicadas
+- **SitesPage drill-down server-side:** `getLatestInventorySiteFiles` passa a aceitar `pageSize: number`
+  (e `LatestSiteDrilldown.pageSize: number`); `loadDrilldown` repassa o `pageSize` selecionado; os
+  handlers "Exibir" e "Anterior/Próxima" re-buscam via `loadDrilldown`; o painel usa
+  `data.page`/`data.totalPages` do backend (sem refatiamento client-side duplicado).
+- **DashboardPage:** `calcPercent` usa comparações consistentes em maiúsculas (`DONE`/`COMPLETED`/`ERROR`/`FAILED`).
+- **useJobStream:** cleanup remove os listeners e zera `es.onerror` antes de `es.close()`.
+- **TopFilesPage:** `key` da linha alinhada a `driveId:itemId`.
+
+### Checklist de conclusão
+- [x] Drill-down envia o `pageSize` selecionado ao backend (50/100/200) e usa paginação server-side
+- [x] `calcPercent` sem código morto de status
+- [x] `useJobStream` com cleanup completo de listeners
+- [x] `TopFilesPage` com `key` consistente
+- [x] Novo teste de contrato do drill-down (`SitesPage.test.tsx`) — pageSize selecionado chega à API
+- [x] `npm run type-check` zero erros
+- [x] `npm run lint` zero warnings
+- [x] `npm run test` — 44 testes aprovados
+- [x] `npm run build` limpo

@@ -61,7 +61,7 @@ export interface LatestSiteFile {
 export interface LatestSiteDrilldown {
   site: Pick<LatestInventorySite, 'siteId' | 'siteName' | 'siteUrl' | 'scanId' | 'scannedAt'>;
   page: number;
-  pageSize: LatestSitesPageSize;
+  pageSize: number;
   totalFiles: number;
   totalPages: number;
   libraries: Array<{
@@ -86,7 +86,7 @@ export async function getLatestInventorySites(params: {
 
 export async function getLatestInventorySiteFiles(
   siteId: string,
-  params: { page?: number; pageSize?: LatestSitesPageSize } = {},
+  params: { page?: number; pageSize?: number } = {},
 ): Promise<LatestSiteDrilldown> {
   return get<LatestSiteDrilldown>(
     `/api/inventory/sites/latest/${encodeURIComponent(siteId)}/files`,

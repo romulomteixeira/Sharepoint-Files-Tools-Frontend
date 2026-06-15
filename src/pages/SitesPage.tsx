@@ -195,11 +195,12 @@ function DrilldownPanel({
   if (!drillState && !drillError && !isLoading) return null;
 
   const allFiles = drillState ? allFilesFrom(drillState.data) : [];
+  // Busca/ordenação são aplicadas client-side sobre a página servida pelo backend.
   const filtered = drillState ? applyDrillFilter(allFiles, drillState.search, drillState.sort) : [];
   const ps       = drillState?.pageSize ?? 50;
-  const pg       = drillState?.page ?? 1;
-  const totalPg  = Math.max(1, Math.ceil(filtered.length / ps));
-  const visible  = filtered.slice((pg - 1) * ps, pg * ps);
+  const pg       = drillState?.data.page ?? 1;
+  const totalPg  = Math.max(1, drillState?.data.totalPages ?? 1);
+  const visible  = filtered;
 
   return (
     <section style={styles.panel}>
@@ -406,7 +407,8 @@ export default function SitesPage(): React.ReactElement {
     });
   }
 
-  async function loadDrilldown(siteId: string, targetPage = 1, pageSize: DrillPageSize = 50): Promise<void> {
+  async function loadDrilldown(siteId: string, targetPage = 1, size?: DrillPageSize): Promise<void> {
+    const pageSize = size ?? drillStates[siteId]?.pageSize ?? 50;
     setDrillLoading(current => new Set(current).add(siteId));
     setDrillErrors(current => {
       const next = { ...current };
@@ -416,7 +418,7 @@ export default function SitesPage(): React.ReactElement {
     try {
       const data = await getLatestInventorySiteFiles(siteId, {
         page: targetPage,
-        pageSize: 50,
+        pageSize,
       });
       setDrillStates(current => {
         const prev = current[siteId];
@@ -425,9 +427,9 @@ export default function SitesPage(): React.ReactElement {
           [siteId]: {
             data,
             page:     targetPage,
-            pageSize: prev?.pageSize ?? pageSize,
-            search:   prev?.search  ?? '',
-            sort:     prev?.sort    ?? 'size_desc',
+            pageSize,
+            search:   prev?.search ?? '',
+            sort:     prev?.sort   ?? 'size_desc',
           },
         };
       });
@@ -609,8 +611,8 @@ export default function SitesPage(): React.ReactElement {
             drillState={ds}
             isLoading={isLoad}
             drillError={err}
-            onChangePage={p => updateDrillState(site.siteId, { page: p })}
-            onChangePageSize={ps => updateDrillState(site.siteId, { pageSize: ps })}
+            onChangePage={p => loadDrilldown(site.siteId, p, ds?.pageSize)}
+            onChangePageSize={ps => loadDrilldown(site.siteId, 1, ps)}
             onChangeSearch={q => updateDrillState(site.siteId, { search: q, page: 1 })}
             onChangeSort={sort => updateDrillState(site.siteId, { sort, page: 1 })}
             onExportCsv={() => exportDrillCsv(site, filtered)}

@@ -234,7 +234,7 @@ export default function TopFilesPage(): React.ReactElement {
               </thead>
               <tbody>
                 {displayed.map((file, index) => (
-                  <tr key={`${file.driveId}:${file.itemId}:${index}`}>
+                  <tr key={`${file.driveId}:${file.itemId}`}>
                     <td>{index + 1}</td>
                     <td>
                       {file.webUrl

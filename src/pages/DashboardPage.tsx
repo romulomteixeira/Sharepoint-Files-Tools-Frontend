@@ -48,9 +48,9 @@ function fmtDate(iso: string | undefined): string {
 function calcPercent(p: ScanProgress | undefined, status: string): number {
   if (!p) return 0;
   const st = String(p.status || status).toUpperCase();
-  if (['DONE', 'completed'].includes(st) || st === 'DONE') return 100;
+  if (st === 'DONE' || st === 'COMPLETED') return 100;
   if (['FINALIZING', 'MATERIALIZING', 'ENRICHING'].includes(st)) return 92;
-  if (st === 'ERROR' || st === 'failed') return 0;
+  if (st === 'ERROR' || st === 'FAILED') return 0;
 
   const totalSites  = p.totalSites  || 0;
   const doneSites   = p.doneSites   || 0;
