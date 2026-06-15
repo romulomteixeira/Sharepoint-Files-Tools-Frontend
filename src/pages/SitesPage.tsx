@@ -195,12 +195,12 @@ function DrilldownPanel({
   if (!drillState && !drillError && !isLoading) return null;
 
   const allFiles = drillState ? allFilesFrom(drillState.data) : [];
-  // Busca/ordenação são aplicadas client-side sobre a página servida pelo backend.
+  // Busca, ordenação e paginação são aplicadas client-side sobre todos os arquivos do site.
   const filtered = drillState ? applyDrillFilter(allFiles, drillState.search, drillState.sort) : [];
   const ps       = drillState?.pageSize ?? 50;
-  const pg       = drillState?.data.page ?? 1;
-  const totalPg  = Math.max(1, drillState?.data.totalPages ?? 1);
-  const visible  = filtered;
+  const pg       = drillState?.page ?? 1;
+  const totalPg  = Math.max(1, Math.ceil(filtered.length / ps));
+  const visible  = filtered.slice((pg - 1) * ps, pg * ps);
 
   return (
     <section style={styles.panel}>
@@ -407,8 +407,7 @@ export default function SitesPage(): React.ReactElement {
     });
   }
 
-  async function loadDrilldown(siteId: string, targetPage = 1, size?: DrillPageSize): Promise<void> {
-    const pageSize = size ?? drillStates[siteId]?.pageSize ?? 50;
+  async function loadDrilldown(siteId: string): Promise<void> {
     setDrillLoading(current => new Set(current).add(siteId));
     setDrillErrors(current => {
       const next = { ...current };
@@ -416,18 +415,42 @@ export default function SitesPage(): React.ReactElement {
       return next;
     });
     try {
-      const data = await getLatestInventorySiteFiles(siteId, {
-        page: targetPage,
-        pageSize,
-      });
+      // O backend pagina os arquivos do site; como o drill-down é limitado a poucos
+      // sites, buscamos todas as páginas e agregamos para permitir busca, ordenação
+      // e paginação client-side sobre o conjunto completo.
+      const FETCH_SIZE = 100;
+      const MAX_PAGES = 50;
+      const byDrive = new Map<string, LatestSiteDrilldown['libraries'][number]>();
+      const ingest = (libs: LatestSiteDrilldown['libraries']): void => {
+        for (const lib of libs) {
+          const existing = byDrive.get(lib.driveId);
+          if (existing) existing.files.push(...lib.files);
+          else byDrive.set(lib.driveId, { ...lib, files: [...lib.files] });
+        }
+      };
+
+      const first = await getLatestInventorySiteFiles(siteId, { page: 1, pageSize: FETCH_SIZE });
+      ingest(first.libraries);
+      const totalPages = Math.min(first.totalPages || 1, MAX_PAGES);
+      for (let page = 2; page <= totalPages; page++) {
+        const next = await getLatestInventorySiteFiles(siteId, { page, pageSize: FETCH_SIZE });
+        ingest(next.libraries);
+      }
+
+      const data: LatestSiteDrilldown = {
+        ...first,
+        page: 1,
+        pageSize: FETCH_SIZE,
+        libraries: Array.from(byDrive.values()),
+      };
       setDrillStates(current => {
         const prev = current[siteId];
         return {
           ...current,
           [siteId]: {
             data,
-            page:     targetPage,
-            pageSize,
+            page:     1,
+            pageSize: prev?.pageSize ?? 50,
             search:   prev?.search ?? '',
             sort:     prev?.sort   ?? 'size_desc',
           },
@@ -611,8 +634,8 @@ export default function SitesPage(): React.ReactElement {
             drillState={ds}
             isLoading={isLoad}
             drillError={err}
-            onChangePage={p => loadDrilldown(site.siteId, p, ds?.pageSize)}
-            onChangePageSize={ps => loadDrilldown(site.siteId, 1, ps)}
+            onChangePage={p => updateDrillState(site.siteId, { page: p })}
+            onChangePageSize={ps => updateDrillState(site.siteId, { pageSize: ps })}
             onChangeSearch={q => updateDrillState(site.siteId, { search: q, page: 1 })}
             onChangeSort={sort => updateDrillState(site.siteId, { sort, page: 1 })}
             onExportCsv={() => exportDrillCsv(site, filtered)}
