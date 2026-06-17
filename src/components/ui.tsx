@@ -74,7 +74,7 @@ export function Card({
       {(title || right) ? (
         <div className="card-head">
           <div>
-            <div className="card-title">{title}</div>
+            {title ? <h2 className="card-title" style={{ margin: 0 }}>{title}</h2> : null}
             {sub ? <div className="card-sub">{sub}</div> : null}
           </div>
           {right ? <div className="row">{right}</div> : null}
