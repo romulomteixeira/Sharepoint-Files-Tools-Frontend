@@ -156,15 +156,15 @@ function ExtensionChart({ files }: { files: LatestSiteFile[] }) {
 }
 
 const chartStyles: Record<string, React.CSSProperties> = {
-  wrap:    { background: '#f7fafc', border: '1px solid #c8ced8', borderRadius: 6, padding: '14px 16px', marginBottom: 14 },
-  title:   { fontWeight: 700, fontSize: 13, marginBottom: 10, color: '#2d3748' },
+  wrap:    { background: 'var(--panel-2)', border: '1px solid var(--border-soft)', borderRadius: 'var(--r-md)', padding: 'var(--pad-card)', marginBottom: 'var(--gap-sm)' },
+  title:   { fontWeight: 700, fontSize: 'calc(var(--fs-base) + 1px)', marginBottom: 10, color: 'var(--text)' },
   rows:    { display: 'flex', flexDirection: 'column', gap: 6 },
   row:     { display: 'grid', gridTemplateColumns: '90px 1fr 90px 70px', gap: 8, alignItems: 'center' },
-  label:   { fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#2b6cb0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  barArea: { background: '#e2e8f0', borderRadius: 4, height: 14, overflow: 'hidden' },
-  bar:     { background: '#2b6cb0', height: '100%', borderRadius: 4, transition: 'width .3s ease', minWidth: 4 },
-  meta:    { textAlign: 'right', fontSize: 11, color: '#4a5568' },
-  count:   { textAlign: 'right', fontSize: 11, color: '#718096' },
+  label:   { fontFamily: "'Cascadia Code', Consolas, monospace", fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  barArea: { background: 'var(--track)', borderRadius: 'var(--r-pill)', height: 14, overflow: 'hidden' },
+  bar:     { background: 'var(--accent)', height: '100%', borderRadius: 'var(--r-pill)', transition: 'width .3s ease', minWidth: 4 },
+  meta:    { textAlign: 'right', fontSize: 'var(--fs-xs)', color: 'var(--muted)' },
+  count:   { textAlign: 'right', fontSize: 'var(--fs-xs)', color: 'var(--faint)' },
 };
 
 // ─── Painel de drill-down de um site ─────────────────────────────────────────
@@ -229,7 +229,7 @@ function DrilldownPanel({
           {/* Bibliotecas incluídas */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
             {drillState.data.libraries.map(lib => (
-              <h3 key={lib.driveId} style={{ margin: 0, fontSize: 13, fontWeight: 700, background: '#eff6ff', color: '#2b6cb0', borderRadius: 4, padding: '4px 10px', border: '1px solid #bee3f8' }}>
+              <h3 key={lib.driveId} className="pill pill-info" style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
                 {lib.driveName}
               </h3>
             ))}
@@ -648,39 +648,39 @@ export default function SitesPage(): React.ReactElement {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { padding: 28, color: '#1a202c' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 },
-  title: { margin: 0, fontSize: 28 },
-  subtitle: { margin: '6px 0 0', color: '#5f6c83' },
-  panel: { background: '#fff', border: '1px solid #c8ced8', borderRadius: 8, padding: 18, marginBottom: 18 },
+  page: { display: 'flex', flexDirection: 'column', gap: 'var(--gap)', color: 'var(--text)' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 },
+  title: { margin: 0, fontSize: 'var(--title-size)', fontWeight: 750, letterSpacing: '-.01em' },
+  subtitle: { margin: '3px 0 0', color: 'var(--muted)', fontSize: 'var(--fs-sm)' },
+  panel: { background: 'var(--panel)', border: 'var(--card-border)', borderRadius: 'var(--r-md)', padding: 'var(--pad-card)', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', gap: 'var(--gap-sm)' },
   filters: { display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' },
-  growLabel: { display: 'grid', gap: 6, flex: '1 1 420px', fontSize: 12, fontWeight: 700 },
-  label: { display: 'grid', gap: 6, minWidth: 150, fontSize: 12, fontWeight: 700 },
-  input: { minHeight: 38, border: '1px solid #aeb8c7', borderRadius: 6, padding: '0 10px' },
-  select: { minHeight: 40, border: '1px solid #aeb8c7', borderRadius: 6, padding: '0 10px', background: '#fff' },
-  primaryButton: { minHeight: 40, border: 0, borderRadius: 6, padding: '0 16px', background: '#2b6cb0', color: '#fff', fontWeight: 700, cursor: 'pointer' },
-  secondaryButton: { minHeight: 38, border: '1px solid #2b6cb0', borderRadius: 6, padding: '0 14px', background: '#fff', color: '#2b6cb0', fontWeight: 700, cursor: 'pointer' },
+  growLabel: { display: 'grid', gap: 4, flex: '1 1 420px', fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' },
+  label: { display: 'grid', gap: 4, minWidth: 150, fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' },
+  input: { height: 'var(--ctl-h)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '0 10px', background: 'var(--panel)', color: 'var(--text)', fontSize: 'var(--fs-base)' },
+  select: { height: 'var(--ctl-h)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '0 10px', background: 'var(--panel)', color: 'var(--text)', fontSize: 'var(--fs-base)', cursor: 'pointer' },
+  primaryButton: { height: 'var(--ctl-h)', border: 0, borderRadius: 'var(--r-sm)', padding: '0 16px', background: 'var(--accent)', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 'var(--fs-base)' },
+  secondaryButton: { height: 'var(--ctl-h)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '0 14px', background: 'var(--panel-2)', color: 'var(--text)', fontWeight: 650, cursor: 'pointer', fontSize: 'var(--fs-base)' },
   disabled: { opacity: 0.5, cursor: 'not-allowed' },
-  selectionBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, margin: '16px 0 10px', padding: 12, background: '#f7fafc', borderRadius: 6 },
-  warning: { padding: 10, marginBottom: 12, background: '#fffbeb', border: '1px solid #d69e2e', borderRadius: 6, color: '#975a16' },
-  error: { padding: 10, margin: '12px 0', background: '#fff5f5', border: '1px solid #c53030', borderRadius: 6, color: '#9b2c2c' },
-  empty: { padding: 24, textAlign: 'center', color: '#5f6c83' },
+  selectionBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: 12, background: 'var(--panel-2)', borderRadius: 'var(--r-sm)', fontSize: 'var(--fs-sm)' },
+  warning: { padding: 10, background: 'var(--warn-bg)', border: '1px solid var(--warn-bd)', borderRadius: 'var(--r-sm)', color: 'var(--warn)', fontSize: 'var(--fs-sm)' },
+  error: { padding: 10, background: 'var(--bad-bg)', border: '1px solid var(--bad-bd)', borderRadius: 'var(--r-sm)', color: 'var(--bad)', fontSize: 'var(--fs-sm)' },
+  empty: { padding: 24, textAlign: 'center', color: 'var(--muted)' },
   tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', padding: '9px 10px', background: '#f1f5f9', borderBottom: '1px solid #c8ced8', whiteSpace: 'nowrap' },
-  thCheck: { width: 36, padding: 9, background: '#f1f5f9', borderBottom: '1px solid #c8ced8' },
-  thRight: { textAlign: 'right', padding: '9px 10px', background: '#f1f5f9', borderBottom: '1px solid #c8ced8', whiteSpace: 'nowrap' },
-  td: { padding: '9px 10px', borderBottom: '1px solid #e2e8f0', verticalAlign: 'top' },
-  tdCheck: { padding: 9, borderBottom: '1px solid #e2e8f0', verticalAlign: 'top' },
-  tdRight: { padding: '9px 10px', borderBottom: '1px solid #e2e8f0', textAlign: 'right', whiteSpace: 'nowrap' },
-  oddRow: { background: '#fafcff' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-base)' },
+  th: { textAlign: 'left', padding: '7px 10px', background: 'var(--panel-2)', color: 'var(--muted)', fontSize: 'var(--fs-xs)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' },
+  thCheck: { width: 36, padding: 9, background: 'var(--panel-2)', borderBottom: '1px solid var(--border)' },
+  thRight: { textAlign: 'right', padding: '7px 10px', background: 'var(--panel-2)', color: 'var(--muted)', fontSize: 'var(--fs-xs)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' },
+  td: { padding: '9px 10px', borderBottom: '1px solid var(--border-soft)', verticalAlign: 'top' },
+  tdCheck: { padding: 9, borderBottom: '1px solid var(--border-soft)', verticalAlign: 'top' },
+  tdRight: { padding: '9px 10px', borderBottom: '1px solid var(--border-soft)', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' },
+  oddRow: { background: 'color-mix(in srgb, var(--accent) 3%, transparent)' },
   siteName: { fontWeight: 700, marginBottom: 3 },
-  link: { color: '#2b6cb0', textDecoration: 'none' },
-  muted: { color: '#5f6c83', fontSize: 12 },
-  code: { fontSize: 11, overflowWrap: 'anywhere' },
-  pagination: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 14, color: '#5f6c83' },
+  link: { color: 'var(--accent)', textDecoration: 'none' },
+  muted: { color: 'var(--muted)', fontSize: 'var(--fs-sm)' },
+  code: { fontSize: 'var(--fs-xs)', overflowWrap: 'anywhere', fontFamily: "'Cascadia Code', Consolas, monospace" },
+  pagination: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 4, color: 'var(--muted)', fontSize: 'var(--fs-sm)' },
   paginationButtons: { display: 'flex', alignItems: 'center', gap: 10 },
-  pageButton: { minHeight: 32, border: '1px solid #aeb8c7', borderRadius: 5, background: '#fff', padding: '0 10px', cursor: 'pointer' },
+  pageButton: { height: 'calc(var(--ctl-h) - 4px)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--panel)', color: 'var(--text)', padding: '0 10px', cursor: 'pointer' },
   detailHeader: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 },
-  detailTitle: { margin: 0, fontSize: 19 },
+  detailTitle: { margin: 0, fontSize: 'calc(var(--fs-base) + 5px)', fontWeight: 700 },
 };

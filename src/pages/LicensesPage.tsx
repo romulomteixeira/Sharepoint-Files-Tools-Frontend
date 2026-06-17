@@ -25,9 +25,9 @@ import type { Scan } from '../types';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const C = {
-  bg: '#eef1f5', panel: '#fff', border: '#c8ced8',
-  accent: '#2b6cb0', text: '#1a202c', muted: '#4a5568',
-  good: '#276749', warn: '#c05621', bad: '#c53030',
+  bg: 'var(--bg)', panel: 'var(--panel)', border: 'var(--border)',
+  accent: 'var(--accent)', text: 'var(--text)', muted: 'var(--muted)',
+  good: 'var(--good)', warn: 'var(--warn)', bad: 'var(--bad)',
 } as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -94,26 +94,26 @@ function Gauge({ usedTb, totalTb }: { usedTb: number; totalTb: number }): React.
     <svg width={180} height={180} viewBox="0 0 180 180" aria-label={`Uso: ${pct.toFixed(1)}%`}>
       {/* trilha */}
       <circle cx={cx} cy={cy} r={r}
-        fill="none" stroke={C.border} strokeWidth={14} />
+        fill="none" strokeWidth={14} style={{ stroke: C.border }} />
       {/* arco de uso */}
       <circle cx={cx} cy={cy} r={r}
-        fill="none" stroke={color} strokeWidth={14}
+        fill="none" strokeWidth={14}
         strokeDasharray={`${arc} ${circ}`}
         strokeLinecap="round"
-        style={{ transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` }}
+        style={{ stroke: color, transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` }}
       />
       {/* percentagem central */}
       <text x={cx} y={cy - 8} textAnchor="middle"
-        fontSize={26} fontWeight={800} fill={color}
-        fontFamily="'Segoe UI', sans-serif">
+        fontSize={26} fontWeight={800}
+        fontFamily="'Segoe UI', sans-serif" style={{ fill: color }}>
         {pct.toFixed(1)}%
       </text>
       <text x={cx} y={cy + 12} textAnchor="middle"
-        fontSize={11} fill={C.muted} fontFamily="'Segoe UI', sans-serif">
+        fontSize={11} fontFamily="'Segoe UI', sans-serif" style={{ fill: C.muted }}>
         utilizado
       </text>
       <text x={cx} y={cy + 28} textAnchor="middle"
-        fontSize={10} fill={C.muted} fontFamily="'Segoe UI', sans-serif">
+        fontSize={10} fontFamily="'Segoe UI', sans-serif" style={{ fill: C.muted }}>
         de {totalTb.toFixed(2)} TB
       </text>
     </svg>
