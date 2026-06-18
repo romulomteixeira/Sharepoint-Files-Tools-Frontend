@@ -195,31 +195,31 @@ export default function VersionedByPeriodPage(): React.ReactElement {
             <table className="tbl" style={styles.table}>
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th className="td-r">#</th>
                   <th>Site</th>
                   <th>Biblioteca / caminho</th>
                   <th>Arquivo</th>
                   <th>{field === 'created' ? 'Criado em' : 'Última modificação'}</th>
                   <th>Colaborador</th>
-                  <th>Tamanho</th>
-                  <th>Versões</th>
-                  <th>Espaço versões</th>
-                  <th>Total</th>
+                  <th className="td-r">Tamanho</th>
+                  <th className="td-r">Versões</th>
+                  <th className="td-r">Espaço versões</th>
+                  <th className="td-r">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((item, index) => (
                   <tr key={`${item.driveId}:${item.itemId}`}>
-                    <td>{index + 1}</td>
+                    <td className="td-r">{index + 1}</td>
                     <td>{item.siteName || item.siteId}</td>
                     <td>{item.driveName || item.driveId}<small style={styles.path}>{item.fullPath || '—'}</small></td>
                     <td>{item.webUrl ? <a href={item.webUrl} target="_blank" rel="noreferrer">{item.name}</a> : item.name}</td>
                     <td>{fmtDate(field === 'created' ? item.created : item.modified)}</td>
                     <td>{(field === 'created' ? item.createdBy : item.modifiedBy) || '—'}</td>
-                    <td>{fmtBytes(item.sizeBytes)}</td>
-                    <td>{(item.versionCount ?? 0).toLocaleString('pt-BR')}</td>
-                    <td>{fmtBytes(item.versionsBytes ?? 0)}</td>
-                    <td><strong>{fmtBytes(item.totalBytes)}</strong></td>
+                    <td className="td-r">{fmtBytes(item.sizeBytes)}</td>
+                    <td className="td-r">{(item.versionCount ?? 0).toLocaleString('pt-BR')}</td>
+                    <td className="td-r">{fmtBytes(item.versionsBytes ?? 0)}</td>
+                    <td className="td-r"><strong>{fmtBytes(item.totalBytes)}</strong></td>
                   </tr>
                 ))}
               </tbody>
@@ -249,5 +249,5 @@ const styles: Record<string, React.CSSProperties> = {
   error: { padding: 16, color: 'var(--bad)', fontWeight: 700 },
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' },
-  path: { display: 'block', marginTop: 3, color: 'var(--faint)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' },
+  path: { display: 'block', marginTop: 2, color: 'var(--faint)', fontSize: 'var(--fs-xs)', maxWidth: 300, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
 };

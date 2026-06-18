@@ -221,13 +221,13 @@ export default function TopFilesPage(): React.ReactElement {
             <table className="tbl" style={styles.table}>
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th className="td-r">#</th>
                   <th>Arquivo</th>
                   <th>Site / biblioteca</th>
-                  <th>Tamanho</th>
-                  <th>Versões</th>
-                  <th>Espaço versões</th>
-                  <th>Total</th>
+                  <th className="td-r">Tamanho</th>
+                  <th className="td-r">Versões</th>
+                  <th className="td-r">Espaço versões</th>
+                  <th className="td-r">Total</th>
                   <th>Modificado</th>
                   {activeView === 'latest' && <th>Origem</th>}
                 </tr>
@@ -235,7 +235,7 @@ export default function TopFilesPage(): React.ReactElement {
               <tbody>
                 {displayed.map((file, index) => (
                   <tr key={`${file.driveId}:${file.itemId}`}>
-                    <td>{index + 1}</td>
+                    <td className="td-r">{index + 1}</td>
                     <td>
                       {file.webUrl
                         ? <a href={file.webUrl} target="_blank" rel="noreferrer">{file.name}</a>
@@ -243,10 +243,10 @@ export default function TopFilesPage(): React.ReactElement {
                       <small style={styles.path}>{file.fullPath || file.extension || '—'}</small>
                     </td>
                     <td>{file.siteName || file.siteId}<small style={styles.path}>{file.driveName || file.driveId}</small></td>
-                    <td>{fmtBytes(file.sizeBytes)}</td>
-                    <td>{(file.versionCount ?? 0).toLocaleString('pt-BR')}</td>
-                    <td>{fmtBytes(file.versionsBytes)}</td>
-                    <td><strong>{fmtBytes(file.totalBytes)}</strong></td>
+                    <td className="td-r">{fmtBytes(file.sizeBytes)}</td>
+                    <td className="td-r">{(file.versionCount ?? 0).toLocaleString('pt-BR')}</td>
+                    <td className="td-r">{fmtBytes(file.versionsBytes)}</td>
+                    <td className="td-r"><strong>{fmtBytes(file.totalBytes)}</strong></td>
                     <td>{fmtDate(file.modified || file.modifiedAt)}</td>
                     {activeView === 'latest' && (
                       <td>
@@ -286,5 +286,5 @@ const styles: Record<string, React.CSSProperties> = {
   error: { padding: 16, color: 'var(--bad)', fontWeight: 700 },
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-base)' },
-  path: { display: 'block', marginTop: 3, color: 'var(--faint)', fontSize: 'var(--fs-xs)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis' },
+  path: { display: 'block', marginTop: 3, color: 'var(--faint)', fontSize: 'var(--fs-xs)', maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
 };

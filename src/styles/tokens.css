@@ -316,7 +316,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
   text-transform: uppercase; letter-spacing: .05em;
   border-bottom: 1px solid var(--border); white-space: nowrap;
 }
-.tbl td { padding: 0 10px; height: var(--row-h); border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.tbl td { padding: 11px 12px; vertical-align: top; border-bottom: 1px solid var(--border-soft); color: var(--text); }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tbody tr { transition: background .1s; }
 .tbl tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
