@@ -37,7 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
       { title: 'Sites',                   sub: 'Último inventário por site',        to: '/sites' },
       { title: 'Inventário',              sub: 'Arquivos, filtros e base',          to: '/inventory' },
       { title: 'Top Arquivos',            sub: 'Maiores e mais versionados',        to: '/top-files' },
-      { title: 'Monitor Oneração',        sub: 'Crescimento e impacto',             to: '/oneration-monitor' },
+      { title: 'Monitor de Oneração',     sub: 'Crescimento e impacto',             to: '/oneration-monitor' },
       { title: 'Versionados por Período', sub: 'Dia, semana e mês',                 to: '/versioned-by-period' },
       { title: 'Simulação de Expurgo',    sub: 'Retenção e economia',               to: '/expurgo' },
     ],
