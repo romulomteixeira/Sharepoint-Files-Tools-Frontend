@@ -6,12 +6,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Search } from 'lucide-react';
-import { cancelScan, createScan, listScans, searchSites } from '../api/scans.api';
+import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSites, RECOMMENDED_FILTERS } from '../api/scans.api';
 import type { ScanMode, SiteSearchResult } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { PageHead, Card, Btn, StatusPill } from '../components/ui';
-import type { Scan } from '../types';
+import ScanFilters from '../components/ScanFilters';
+import type { Scan, ScanFilters as ScanFiltersType, ScanFilterCategory } from '../types';
+
+const FILTERS_STORAGE_KEY = 'scan.filters.lastUsed';
+
+function loadStoredFilters(): ScanFiltersType {
+  try {
+    const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<ScanFiltersType>;
+      return { ...RECOMMENDED_FILTERS, ...parsed };
+    }
+  } catch {
+    // localStorage indisponível/corrompido — usa preset Recomendado
+  }
+  return { ...RECOMMENDED_FILTERS };
+}
 
 function formatBytes(bytes: number | undefined): string {
   if (!bytes) return '—';
@@ -57,12 +73,32 @@ export default function ScansPage(): React.ReactElement {
   const [creating, setCreating] = useState(false);
   const [cancellingScanId, setCancellingScanId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
+  const [filters, setFilters] = useState<ScanFiltersType>(loadStoredFilters);
+  const [filterCategories, setFilterCategories] = useState<ScanFilterCategory[]>([]);
 
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 4000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // Carrega o catálogo de categorias do backend (best-effort; cai no fallback do componente).
+  useEffect(() => {
+    let active = true;
+    getScanFilterCatalog()
+      .then((catalog) => { if (active) setFilterCategories(catalog.categories); })
+      .catch(() => { /* mantém fallback embutido */ });
+    return () => { active = false; };
+  }, []);
+
+  function handleFiltersChange(next: ScanFiltersType): void {
+    setFilters(next);
+    try {
+      window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignora storage indisponível
+    }
+  }
 
   const selectedIds = useMemo(() => new Set(selected.map((site) => site.id)), [selected]);
   const allResultsSelected = results.length > 0 && results.every((site) => selectedIds.has(site.id));
@@ -122,6 +158,8 @@ export default function ScansPage(): React.ReactElement {
         maxSites: scanMaxSites,
         mode,
         enableVersioning,
+        // filtros de categoria só se aplicam à enumeração completa (Todos os sites)
+        ...(scope === 'all' ? { filters } : {}),
       });
       setToast({ text: `Scan ${scan.id.slice(0, 8)} iniciado com sucesso.`, kind: 'success' });
       setSelected([]);
@@ -197,6 +235,10 @@ export default function ScansPage(): React.ReactElement {
               <input id="scan-max-sites" className="input" type="number" min={1} max={20000} value={scanMaxSites} onChange={(e) => setScanMaxSites(Math.max(1, Math.min(20000, Number(e.target.value) || 1)))} />
             </div>
           </div>
+        )}
+
+        {scope === 'all' && (
+          <ScanFilters value={filters} onChange={handleFiltersChange} categories={filterCategories} />
         )}
 
         <h3 className="card-title" style={{ margin: 'var(--gap-sm) 0' }}>Localizar e selecionar sites</h3>
