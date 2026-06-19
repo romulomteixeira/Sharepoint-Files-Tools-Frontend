@@ -46,6 +46,7 @@ export interface Scan {
     sites?: string[];
     siteSearch?: string;
     maxSites?: number;
+    filters?: ScanFilters;
     options?: {
       enableVersioning?: boolean;
       quickMode?: {
@@ -55,6 +56,27 @@ export interface Scan {
       } | null;
     };
   };
+}
+
+/** Filtros de categorias de repositório a excluir do scan (espelha o backend site-filters). */
+export interface ScanFilters {
+  excludeOneDrive: boolean;        // F1
+  excludeSystem: boolean;          // F2
+  excludeArchived: boolean;        // F5
+  excludeNoDrives: boolean;        // F7
+  excludeChannelPrivate: boolean;  // F3
+  excludeChannelShared: boolean;   // F4
+  excludeEmbedded: boolean;        // F6
+  excludeSubsites: boolean;        // F9
+}
+
+/** Item do catálogo de filtros retornado por GET /api/scan-filter-categories. */
+export interface ScanFilterCategory {
+  key: keyof ScanFilters;
+  category: string;
+  label: string;
+  needsDrives: boolean;
+  needsTeams: boolean;
 }
 
 /**

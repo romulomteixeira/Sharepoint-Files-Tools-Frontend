@@ -71,6 +71,16 @@ describe("ScansPage", () => {
         allSites: true,
         siteSearch: "marketing",
         maxSites: 8500,
+        filters: {
+          excludeOneDrive: true,
+          excludeSystem: true,
+          excludeArchived: true,
+          excludeNoDrives: true,
+          excludeChannelPrivate: false,
+          excludeChannelShared: false,
+          excludeEmbedded: false,
+          excludeSubsites: false,
+        },
         options: {
           enableVersioning: false,
           quickMode: { maxSites: 10, maxDrivesPerSite: 5, maxItemsPerDrive: 2000 },

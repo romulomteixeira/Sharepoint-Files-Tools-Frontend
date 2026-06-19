@@ -3,7 +3,7 @@
  */
 
 import { get, post } from './client';
-import type { Scan, ScanStatusDetail } from '../types';
+import type { Scan, ScanStatusDetail, ScanFilters, ScanFilterCategory } from '../types';
 
 export interface CreateScanParams {
   tenantId?: string;
@@ -14,7 +14,30 @@ export interface CreateScanParams {
   maxSites?: number;
   mode?: ScanMode;
   enableVersioning?: boolean;
+  filters?: ScanFilters;
 }
+
+export type ScanFilterPresetName = 'recommended' | 'minimal' | 'aggressive' | 'none';
+
+export interface ScanFilterCatalog {
+  categories: ScanFilterCategory[];
+  filterKeys: (keyof ScanFilters)[];
+  presets: Record<ScanFilterPresetName, ScanFilters>;
+  defaultPreset: ScanFilterPresetName;
+  recommended: ScanFilters;
+}
+
+/** Preset Recomendado embutido — fallback caso a API de categorias falhe. */
+export const RECOMMENDED_FILTERS: ScanFilters = {
+  excludeOneDrive: true,
+  excludeSystem: true,
+  excludeArchived: true,
+  excludeNoDrives: true,
+  excludeChannelPrivate: false,
+  excludeChannelShared: false,
+  excludeEmbedded: false,
+  excludeSubsites: false,
+};
 
 export type ScanMode = 'full' | 'fast' | 'estimate';
 
@@ -119,6 +142,8 @@ export async function createScan(params?: CreateScanParams): Promise<Scan> {
           maxSites: Math.max(1, Math.min(20000, params?.maxSites ?? 5000)),
         }
       : { sites: siteIds }),
+    // filtros só são enviados quando informados; ausência → backend usa preset Recomendado
+    ...(params?.filters ? { filters: params.filters } : {}),
     options: {
       enableVersioning: params?.enableVersioning ?? false,
       quickMode,
@@ -133,6 +158,7 @@ export async function createScan(params?: CreateScanParams): Promise<Scan> {
       allSites: payload.allSites,
       sites: siteIds,
       ...('siteSearch' in payload ? { siteSearch: payload.siteSearch, maxSites: payload.maxSites } : {}),
+      ...('filters' in payload ? { filters: payload.filters } : {}),
       options: payload.options,
     },
   });
@@ -153,6 +179,11 @@ export async function getScanStatus(scanId: string): Promise<ScanStatusDetail> {
 /** Cancela um scan em execução. */
 export async function cancelScan(scanId: string): Promise<void> {
   return post<void>(`/api/scans/${scanId}/cancel`);
+}
+
+/** Retorna o catálogo de categorias de filtro e presets para a tela de scan. */
+export async function getScanFilterCatalog(): Promise<ScanFilterCatalog> {
+  return get<ScanFilterCatalog>('/api/scan-filter-categories');
 }
 
 /** Busca sites disponíveis por nome ou URL para seleção em operações e scans. */
