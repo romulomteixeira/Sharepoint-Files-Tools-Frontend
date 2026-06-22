@@ -170,11 +170,20 @@ export default function DashboardPage(): React.ReactElement {
     setLastUpdated(new Date());
   }, []);
 
-  // ── Mount: carrega scans, seleciona o mais recente ───────────────────────
+  // ── Mount: carrega scans e seleciona o scan a monitorar ──────────────────
+  // Prioriza um scan EM EXECUÇÃO (para acompanhar a evolução ao vivo); senão um
+  // ativo (na fila) e, por fim, o mais recente. Evita exibir um scan "aguardando"
+  // recém-criado enquanto outro está rodando.
   useEffect(() => {
     setLoading(true);
     loadScans()
-      .then(data => { if (data.length > 0) setScanId(data[0].id); })
+      .then(data => {
+        if (data.length === 0) return;
+        const pick = data.find(s => s.status === 'running')
+          ?? data.find(s => ACTIVE.has(s.status))
+          ?? data[0];
+        setScanId(pick.id);
+      })
       .catch(() => showToast('Erro ao carregar scans.', 'bad'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
