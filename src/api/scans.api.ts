@@ -194,3 +194,46 @@ export async function searchSites(search: string, top = 50): Promise<SiteSearchR
   );
   return Array.isArray(response) ? response : response.items;
 }
+
+export interface SitePreviewExcluded extends SiteSearchResult {
+  category: string;
+  reason: string;
+}
+
+export interface SitePreviewCounts {
+  total: number;
+  kept?: number;
+  excluded?: number;
+  breakdown?: Record<string, number>;
+}
+
+export interface SitePreviewResult {
+  items: SiteSearchResult[];
+  excluded: SitePreviewExcluded[];
+  counts: SitePreviewCounts;
+  filtered: boolean;
+  note?: string;
+}
+
+/**
+ * Pré-visualiza a busca de sites para validar antes do scan: sem o limite de 999
+ * (pagina no backend) e, quando `filters` é informado, classifica e devolve
+ * incluídos/excluídos + contagens.
+ */
+export async function searchSitesPreview(
+  search: string,
+  max = 5000,
+  filters?: ScanFilters,
+): Promise<SitePreviewResult> {
+  const params: Record<string, string | number> = { search: search.trim() || '*', max };
+  if (filters) params.filters = JSON.stringify(filters);
+  const r = await get<Partial<SitePreviewResult> & { items?: SiteSearchResult[] }>('/api/sites', params);
+  const items = r.items ?? [];
+  return {
+    items,
+    excluded: r.excluded ?? [],
+    counts: r.counts ?? { total: items.length },
+    filtered: !!r.filtered,
+    note: r.note,
+  };
+}

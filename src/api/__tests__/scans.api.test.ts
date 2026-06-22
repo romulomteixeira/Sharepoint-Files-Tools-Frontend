@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSites } from "../scans.api";
+import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSites, searchSitesPreview } from "../scans.api";
 import { server } from "../../test/server";
 
 describe("scans.api", () => {
@@ -80,6 +80,50 @@ describe("scans.api", () => {
     const catalog = await getScanFilterCatalog();
     expect(catalog.categories[0].key).toBe("excludeOneDrive");
     expect(catalog.defaultPreset).toBe("recommended");
+  });
+
+  it("pré-visualiza a busca com max e filtros, retornando contagens e excluídos", async () => {
+    let qs: URLSearchParams | null = null;
+    server.use(
+      http.get("/api/sites", ({ request }) => {
+        qs = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          items: [{ id: "s1", displayName: "Marketing", webUrl: "https://t/sites/marketing" }],
+          excluded: [{ id: "s2", displayName: "Joao", webUrl: "https://t-my/personal/joao", category: "onedrive_personal", reason: "filtro excludeOneDrive" }],
+          counts: { total: 2, kept: 1, excluded: 1, breakdown: { onedrive_personal: 1 } },
+          filtered: true,
+          note: "ok",
+        });
+      }),
+    );
+
+    const filters = {
+      excludeOneDrive: true, excludeSystem: true, excludeArchived: true, excludeNoDrives: true,
+      excludeChannelPrivate: false, excludeChannelShared: false, excludeEmbedded: false, excludeSubsites: false,
+    };
+    const preview = await searchSitesPreview("*", 8000, filters);
+
+    expect(qs!.get("max")).toBe("8000");
+    expect(qs!.get("search")).toBe("*");
+    expect(JSON.parse(qs!.get("filters")!)).toEqual(filters);
+    expect(preview.counts).toEqual({ total: 2, kept: 1, excluded: 1, breakdown: { onedrive_personal: 1 } });
+    expect(preview.items).toHaveLength(1);
+    expect(preview.excluded[0].category).toBe("onedrive_personal");
+    expect(preview.filtered).toBe(true);
+  });
+
+  it("pré-visualiza sem filtros (não envia filters) e usa total como fallback", async () => {
+    let hasFilters = true;
+    server.use(
+      http.get("/api/sites", ({ request }) => {
+        hasFilters = new URL(request.url).searchParams.has("filters");
+        return HttpResponse.json({ items: [{ id: "s1", displayName: "A", webUrl: "u" }] });
+      }),
+    );
+    const preview = await searchSitesPreview("*", 5000);
+    expect(hasFilters).toBe(false);
+    expect(preview.counts.total).toBe(1);
+    expect(preview.filtered).toBe(false);
   });
 
   it("adapta siteIds ao contrato homologado do scan parcial", async () => {
