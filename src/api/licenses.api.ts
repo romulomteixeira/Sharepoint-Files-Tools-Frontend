@@ -18,6 +18,7 @@ export interface SkuEntry {
   prepaidEnabled:         number;
   prepaidSuspended:       number;
   prepaidWarning:         number;
+  prepaidTotal?:          number;
   unitsForCapacityCalc:   number;
   capacityContributionGb: number;
 }

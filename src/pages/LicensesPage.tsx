@@ -391,6 +391,7 @@ export default function LicensesPage(): React.ReactElement {
                   <th style={ls.thR}>Activos</th>
                   <th style={ls.thR}>Suspensos</th>
                   <th style={ls.thR}>Aviso</th>
+                  <th style={ls.thR}>Total in Tennant</th>
                   <th style={ls.thR}>Contribuição (GB)</th>
                   <th style={ls.th}>Tipo</th>
                 </tr>
@@ -405,6 +406,9 @@ export default function LicensesPage(): React.ReactElement {
                     <td style={ls.tdR}>{sku.consumedUnits.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidSuspended.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidWarning.toLocaleString('pt-PT')}</td>
+                    <td style={{ ...ls.tdR, fontWeight: 700 }}>
+                      {(sku.prepaidTotal ?? (sku.prepaidEnabled + sku.prepaidSuspended + sku.prepaidWarning)).toLocaleString('pt-PT')}
+                    </td>
                     <td style={{
                       ...ls.tdR, fontWeight: 700,
                       color: sku.capacityContributionGb > 0 ? C.accent : C.muted,
