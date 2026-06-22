@@ -68,6 +68,8 @@ export interface LicenseCapacityReport {
   storage?:     Record<string, unknown>;
   capacityNow?: CapacityNow;
   divergence?:  Divergence;
+  cached?:      boolean;       // servido do cache (Worker-Dash)
+  fetchedAt?:   string;        // data/hora da última atualização do cache
 }
 
 // ─── Fetch interno ────────────────────────────────────────────────────────────
@@ -100,4 +102,24 @@ async function lfetch<T>(path: string): Promise<T> {
  */
 export async function getLicenseCapacity(): Promise<LicenseCapacityReport> {
   return lfetch<LicenseCapacityReport>('/api/sharepoint/licenses');
+}
+
+/**
+ * Dispara a atualização do relatório de licenças via Graph (Worker-Dash) e
+ * retorna o relatório recém-calculado. Pode demorar (chamada ao Graph).
+ */
+export async function refreshLicenseCapacity(): Promise<LicenseCapacityReport> {
+  const res = await fetch(`${BASE_URL}/api/sharepoint/licenses/refresh`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; report?: LicenseCapacityReport; fetchedAt?: string; error?: string };
+  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+  const report = json.report ?? (json as unknown as LicenseCapacityReport);
+  return { ...report, fetchedAt: json.fetchedAt ?? report.fetchedAt, cached: false };
 }
