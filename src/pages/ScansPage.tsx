@@ -6,8 +6,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Search } from 'lucide-react';
-import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSites, RECOMMENDED_FILTERS } from '../api/scans.api';
-import type { ScanMode, SiteSearchResult } from '../api/scans.api';
+import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSitesPreview, RECOMMENDED_FILTERS } from '../api/scans.api';
+import type { ScanMode, SiteSearchResult, SitePreviewExcluded, SitePreviewCounts } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { PageHead, Card, Btn, StatusPill } from '../components/ui';
@@ -75,6 +75,9 @@ export default function ScansPage(): React.ReactElement {
   const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [filters, setFilters] = useState<ScanFiltersType>(loadStoredFilters);
   const [filterCategories, setFilterCategories] = useState<ScanFilterCategory[]>([]);
+  const [applyFiltersToSearch, setApplyFiltersToSearch] = useState(true);
+  const [previewCounts, setPreviewCounts] = useState<SitePreviewCounts | null>(null);
+  const [excludedPreview, setExcludedPreview] = useState<SitePreviewExcluded[]>([]);
 
   useEffect(() => {
     if (!toast) return;
@@ -113,11 +116,15 @@ export default function ScansPage(): React.ReactElement {
     setSearching(true);
     setSearchError(null);
     try {
-      const sites = await searchSites(query, siteLimit);
-      setResults(sites);
+      const preview = await searchSitesPreview(query, siteLimit, applyFiltersToSearch ? filters : undefined);
+      setResults(preview.items);
+      setPreviewCounts(preview.counts);
+      setExcludedPreview(preview.excluded);
       setPage(1);
     } catch (err) {
       setResults([]);
+      setPreviewCounts(null);
+      setExcludedPreview([]);
       setPage(1);
       setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
     } finally {
@@ -249,17 +256,55 @@ export default function ScansPage(): React.ReactElement {
           </div>
           <div className="field" style={{ width: 180 }}>
             <label className="field-label" htmlFor="site-limit">Quantidade a listar</label>
-            <input id="site-limit" className="input" type="number" min={1} max={999} value={siteLimit} onChange={(e) => setSiteLimit(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
+            <input id="site-limit" className="input" type="number" min={1} max={50000} value={siteLimit} onChange={(e) => setSiteLimit(Math.max(1, Math.min(50000, Number(e.target.value) || 1)))} />
           </div>
           <Btn icon={Search} onClick={handleLoadSites} disabled={searching}>
             {searching ? 'Carregando...' : 'Carregar sites'}
           </Btn>
         </div>
+        <label className="check-row" style={{ alignItems: 'center', marginTop: 'var(--gap-sm)' }}>
+          <input
+            type="checkbox"
+            checked={applyFiltersToSearch}
+            onChange={(e) => setApplyFiltersToSearch(e.target.checked)}
+          />
+          <span className="small">
+            Aplicar filtros de categoria à busca (mostra apenas os sites que entrariam no scan e quantos seriam excluídos)
+          </span>
+        </label>
         <div className="small muted" style={{ marginTop: 5, minHeight: 20 }}>
           {results.length > 0
             ? `${results.length} site(s) carregado(s); ${selected.length} selecionado(s)`
             : 'Informe a busca e a quantidade desejada. A listagem não é carregada automaticamente.'}
         </div>
+
+        {previewCounts && (
+          <div className="info-box" style={{ marginTop: 'var(--gap-sm)' }} aria-live="polite">
+            <strong>{previewCounts.total}</strong> site(s) encontrado(s) na busca
+            {typeof previewCounts.kept === 'number' && typeof previewCounts.excluded === 'number' && (
+              <> — <strong>{previewCounts.kept}</strong> incluído(s) no scan, <strong>{previewCounts.excluded}</strong> excluído(s) pelos filtros</>
+            )}
+            {previewCounts.breakdown && Object.keys(previewCounts.breakdown).length > 0 && (
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {Object.entries(previewCounts.breakdown).map(([cat, n]) => `${cat}: ${n}`).join(' · ')}
+              </div>
+            )}
+            {excludedPreview.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary className="small" style={{ cursor: 'pointer' }}>Ver {excludedPreview.length} site(s) excluído(s)</summary>
+                <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 6 }}>
+                  {excludedPreview.map((site) => (
+                    <div key={site.id} className="small" style={{ padding: '0.3rem 0', borderBottom: '1px solid var(--border-soft)' }}>
+                      <strong>{site.displayName || site.webUrl}</strong>
+                      <span className="pill pill-mute" style={{ marginLeft: 6 }}>{site.category}</span>
+                      <small className="mono" style={{ display: 'block', color: 'var(--muted)' }}>{site.webUrl}</small>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
         {searchError && <div role="alert" style={{ color: 'var(--bad)', margin: '0.5rem 0' }}>{searchError}</div>}
 
         {results.length > 0 && (

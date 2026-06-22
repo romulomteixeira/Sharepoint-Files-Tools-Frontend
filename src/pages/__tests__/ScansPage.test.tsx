@@ -121,7 +121,7 @@ describe("ScansPage", () => {
       http.get("/api/scans/list", () => HttpResponse.json({ items: [] })),
       http.get("/api/sites", ({ request }) => {
         const url = new URL(request.url);
-        requests(url.searchParams.get("search"), url.searchParams.get("top"));
+        requests(url.searchParams.get("search"), url.searchParams.get("max"));
         return HttpResponse.json({ items: [] });
       }),
     );
