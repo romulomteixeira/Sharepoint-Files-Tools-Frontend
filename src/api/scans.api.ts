@@ -227,7 +227,9 @@ export async function searchSitesPreview(
 ): Promise<SitePreviewResult> {
   const params: Record<string, string | number> = { search: search.trim() || '*', max };
   if (filters) params.filters = JSON.stringify(filters);
-  const r = await get<Partial<SitePreviewResult> & { items?: SiteSearchResult[] }>('/api/sites', params);
+  // timeout 0 = sem limitador: enumerar muitos sites (ex.: 10000) pode passar de
+  // 30s legitimamente; a chamada não deve ser interrompida pelo client.
+  const r = await get<Partial<SitePreviewResult> & { items?: SiteSearchResult[] }>('/api/sites', params, undefined, 0);
   const items = r.items ?? [];
   return {
     items,
