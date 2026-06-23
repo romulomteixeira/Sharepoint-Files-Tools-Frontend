@@ -100,6 +100,7 @@ function normalizeStatus(status?: string): Scan['status'] {
       return 'running';
     case 'DONE':
     case 'COMPLETED':
+    case 'DONE_WITH_ERRORS':
       return 'completed';
     case 'ERROR':
     case 'FAILED':
