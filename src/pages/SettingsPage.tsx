@@ -31,6 +31,10 @@ import {
   type SchedulerState,
   type WorkersHealth,
 } from '../api/settings.api';
+import { listScans } from '../api/scans.api';
+import { getInventorySites } from '../api/inventory.api';
+import { enrichVersions } from '../api/versions.api';
+import type { Scan, SiteRollup } from '../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -228,6 +232,15 @@ export default function SettingsPage(): React.ReactElement {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleSaved, setScheduleSaved] = useState(false);
 
+  // ── Enriquecimento de versões (Configurações > Enriquecimento de Versões) ──
+  const [enrichScans, setEnrichScans] = useState<Scan[]>([]);
+  const [enrichScanId, setEnrichScanId] = useState<string>('');
+  const [enrichSites, setEnrichSites] = useState<SiteRollup[]>([]);
+  const [enrichSelectedSites, setEnrichSelectedSites] = useState<Set<string>>(new Set());
+  const [enrichLoadingSites, setEnrichLoadingSites] = useState(false);
+  const [enrichBusy, setEnrichBusy] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Mount: sessão + config ────────────────────────────────────────────────
@@ -349,6 +362,51 @@ export default function SettingsPage(): React.ReactElement {
       setError(String((e as Error)?.message ?? e));
     } finally {
       setCheckingWorkers(false);
+    }
+  };
+
+  // ── Enriquecimento de versões ──────────────────────────────────────────────
+  useEffect(() => {
+    listScans().then(setEnrichScans).catch(() => setEnrichScans([]));
+  }, []);
+
+  const handleSelectEnrichScan = async (scanId: string) => {
+    setEnrichScanId(scanId);
+    setEnrichSelectedSites(new Set());
+    setEnrichSites([]);
+    setEnrichMsg(null);
+    if (!scanId) return;
+    setEnrichLoadingSites(true);
+    try {
+      const res = await getInventorySites(scanId, { pageSize: 500 });
+      setEnrichSites(res.items ?? []);
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao carregar sites: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichLoadingSites(false);
+    }
+  };
+
+  const toggleEnrichSite = (siteId: string) => {
+    setEnrichSelectedSites((prev) => {
+      const next = new Set(prev);
+      if (next.has(siteId)) next.delete(siteId); else next.add(siteId);
+      return next;
+    });
+  };
+
+  const runEnrich = async (siteIds?: string[]) => {
+    if (!enrichScanId) return;
+    setEnrichBusy(true);
+    setEnrichMsg(null);
+    try {
+      const r = await enrichVersions({ scanId: enrichScanId, siteIds });
+      const escopo = siteIds && siteIds.length ? `${siteIds.length} site(s)` : 'todos os sites (FULL)';
+      setEnrichMsg({ ok: true, text: `Enriquecimento enfileirado (${escopo}): ${r.total.toLocaleString('pt-BR')} arquivo(s). Job ${r.jobId}. Se houver scan em execução, aguarda na fila.` });
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao enfileirar: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichBusy(false);
     }
   };
 
@@ -1047,6 +1105,76 @@ export default function SettingsPage(): React.ReactElement {
                 <div style={ss.infoInline}>
                   O scan não iniciará enriquecimento automático de versões. O cálculo ainda poderá ser executado manualmente.
                 </div>
+              )}
+            </div>
+          </Section>
+
+          {/* ── Enriquecimento de Versões ─────────────────────────────────── */}
+          <Section title="Enriquecimento de Versões" subtitle="Selecione um scan e enriqueça as versões dos arquivos — completo (FULL) ou por site (parcial)" defaultOpen={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.infoInline}>
+                Busca no MS-Graph a contagem e o tamanho das versões dos arquivos do scan. Entra na <strong>fila sequencial</strong>: se houver um scan em execução, aguarda para não estourar o throttling do Graph. Só arquivos ainda sem versão são processados (re-disparo não duplica).
+              </div>
+              <div style={ss.grid3}>
+                <Field label="Scan" hint="Scan de referência">
+                  <select
+                    aria-label="Selecionar scan para enriquecimento"
+                    style={ss.input}
+                    value={enrichScanId}
+                    onChange={(e) => handleSelectEnrichScan(e.target.value)}
+                    disabled={!isAdmin || enrichBusy}
+                  >
+                    <option value="">— selecione —</option>
+                    {enrichScans.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.id.slice(0, 8)} — {new Date(s.createdAt).toLocaleString('pt-BR')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              {enrichScanId && (
+                <>
+                  <div style={ss.inlineRow}>
+                    <button type="button" style={ss.btnPrimary} disabled={!isAdmin || enrichBusy} onClick={() => runEnrich()}>
+                      {enrichBusy ? 'Enfileirando…' : 'Enriquecer TUDO (FULL)'}
+                    </button>
+                    <button
+                      type="button"
+                      style={ss.btnSecondary}
+                      disabled={!isAdmin || enrichBusy || enrichSelectedSites.size === 0}
+                      onClick={() => runEnrich([...enrichSelectedSites])}
+                    >
+                      Enriquecer sites selecionados ({enrichSelectedSites.size})
+                    </button>
+                  </div>
+
+                  {enrichLoadingSites && <div style={ss.infoInline}>Carregando sites…</div>}
+
+                  {!enrichLoadingSites && enrichSites.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+                      {enrichSites.map((site) => (
+                        <label key={site.siteId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.text }}>
+                          <input
+                            type="checkbox"
+                            checked={enrichSelectedSites.has(site.siteId)}
+                            onChange={() => toggleEnrichSite(site.siteId)}
+                            disabled={!isAdmin || enrichBusy}
+                          />
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {site.siteName || site.siteId}
+                          </span>
+                          <span style={{ color: C.muted, fontSize: 12 }}>{site.totalFiles.toLocaleString('pt-BR')} arq.</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {enrichMsg && (
+                    <div style={enrichMsg.ok ? ss.validationOk : ss.diagnosticError}>{enrichMsg.text}</div>
+                  )}
+                </>
               )}
             </div>
           </Section>
