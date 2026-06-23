@@ -33,7 +33,7 @@ import {
 } from '../api/settings.api';
 import { listScans } from '../api/scans.api';
 import { getInventorySites } from '../api/inventory.api';
-import { enrichVersions } from '../api/versions.api';
+import { enrichVersions, getVersionedFiles, type VersionedFilesResponse } from '../api/versions.api';
 import type { Scan, SiteRollup } from '../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -240,6 +240,10 @@ export default function SettingsPage(): React.ReactElement {
   const [enrichLoadingSites, setEnrichLoadingSites] = useState(false);
   const [enrichBusy, setEnrichBusy] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Filtro "versões acima de X"
+  const [minVersions, setMinVersions] = useState(1);
+  const [versionedResult, setVersionedResult] = useState<VersionedFilesResponse | null>(null);
+  const [versionedBusy, setVersionedBusy] = useState(false);
 
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -409,6 +413,22 @@ export default function SettingsPage(): React.ReactElement {
       setEnrichBusy(false);
     }
   };
+
+  const runVersionedFilter = async () => {
+    if (!enrichScanId) return;
+    setVersionedBusy(true);
+    setVersionedResult(null);
+    try {
+      const x = Math.max(1, Math.min(102, Math.trunc(minVersions || 1)));
+      setVersionedResult(await getVersionedFiles(enrichScanId, { minVersions: x, page: 1, pageSize: 50 }));
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao filtrar versões: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setVersionedBusy(false);
+    }
+  };
+
+  const fmtGB = (b: number) => `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB`;
 
   const updateSchedule = <K extends keyof SchedulerConfig>(
     key: K,
@@ -1174,6 +1194,61 @@ export default function SettingsPage(): React.ReactElement {
                   {enrichMsg && (
                     <div style={enrichMsg.ok ? ss.validationOk : ss.diagnosticError}>{enrichMsg.text}</div>
                   )}
+
+                  {/* Filtro: arquivos acima de X versões */}
+                  <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={ss.infoInline}>
+                      Filtra os arquivos deste scan com <strong>mais de X versões</strong> (1–102) no SharePoint, usando os dados já enriquecidos.
+                    </div>
+                    <div style={{ ...ss.inlineRow, alignItems: 'flex-end' }}>
+                      <Field label="Acima de X versões" hint="1 a 102">
+                        <input
+                          aria-label="Número mínimo de versões"
+                          style={{ ...ss.input, maxWidth: 120 }}
+                          type="number" min={1} max={102}
+                          value={minVersions}
+                          onChange={(e) => setMinVersions(Math.max(1, Math.min(102, Math.trunc(Number(e.target.value) || 1))))}
+                          disabled={versionedBusy}
+                        />
+                      </Field>
+                      <button type="button" style={ss.btnSecondary} disabled={versionedBusy} onClick={runVersionedFilter}>
+                        {versionedBusy ? 'Filtrando…' : 'Filtrar'}
+                      </button>
+                    </div>
+
+                    {versionedResult && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={ss.validationOk}>
+                          {versionedResult.total.toLocaleString('pt-BR')} arquivo(s) com mais de {versionedResult.minVersions} versão(ões) • {fmtGB(versionedResult.totalVersionsBytes)} em versões
+                          {versionedResult.total > versionedResult.items.length ? ` (exibindo os ${versionedResult.items.length} primeiros)` : ''}
+                        </div>
+                        {versionedResult.items.length > 0 && (
+                          <div style={{ maxHeight: 340, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ color: C.muted, textAlign: 'left' }}>
+                                  <th style={{ padding: '6px 8px' }}>Arquivo</th>
+                                  <th style={{ padding: '6px 8px' }}>Site</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Versões</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Espaço versões</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {versionedResult.items.map((f, i) => (
+                                  <tr key={`${f.siteId}-${f.fullPath}-${i}`} style={{ borderTop: `1px solid ${C.border}`, color: C.text }}>
+                                    <td style={{ padding: '6px 8px', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.fullPath}>{f.fullPath}</td>
+                                    <td style={{ padding: '6px 8px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.siteName}>{f.siteName}</td>
+                                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.versionCount.toLocaleString('pt-BR')}</td>
+                                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtGB(f.versionsBytes)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
