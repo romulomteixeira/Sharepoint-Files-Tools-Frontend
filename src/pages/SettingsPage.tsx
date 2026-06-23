@@ -33,7 +33,7 @@ import {
 } from '../api/settings.api';
 import { listScans } from '../api/scans.api';
 import { getInventorySites } from '../api/inventory.api';
-import { enrichVersions, getVersionedFiles, type VersionedFilesResponse } from '../api/versions.api';
+import { enrichVersions, getVersionedFiles, checkScanChanges, type VersionedFilesResponse } from '../api/versions.api';
 import type { Scan, SiteRollup } from '../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -429,6 +429,21 @@ export default function SettingsPage(): React.ReactElement {
   };
 
   const fmtGB = (b: number) => `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB`;
+
+  const runDeltaCheck = async (siteIds?: string[]) => {
+    if (!enrichScanId) return;
+    setEnrichBusy(true);
+    setEnrichMsg(null);
+    try {
+      const r = await checkScanChanges(enrichScanId, siteIds);
+      const escopo = siteIds && siteIds.length ? `${siteIds.length} site(s)` : 'todos os sites (FULL)';
+      setEnrichMsg({ ok: true, text: `Verificação de alterações enfileirada (${escopo}). Job ${r.jobId}. Vai detectar novos arquivos/sites, modificados e deletados e re-enriquecer o que mudou. Aguarda na fila se houver scan em execução.` });
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao enfileirar verificação: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichBusy(false);
+    }
+  };
 
   const updateSchedule = <K extends keyof SchedulerConfig>(
     key: K,
@@ -1168,6 +1183,23 @@ export default function SettingsPage(): React.ReactElement {
                     >
                       Enriquecer sites selecionados ({enrichSelectedSites.size})
                     </button>
+                  </div>
+
+                  <div style={ss.inlineRow}>
+                    <button type="button" style={ss.btnSecondary} disabled={!isAdmin || enrichBusy} onClick={() => runDeltaCheck()}>
+                      Verificar alterações no MS-Graph (FULL)
+                    </button>
+                    <button
+                      type="button"
+                      style={ss.btnSecondary}
+                      disabled={!isAdmin || enrichBusy || enrichSelectedSites.size === 0}
+                      onClick={() => runDeltaCheck([...enrichSelectedSites])}
+                    >
+                      Verificar alterações nos sites selecionados ({enrichSelectedSites.size})
+                    </button>
+                  </div>
+                  <div style={ss.infoInline}>
+                    "Verificar alterações" consulta o MS-Graph e atualiza o scan: arquivos novos, modificados (novas versões) e deletados, além de bibliotecas/sites novos (no modo FULL). Re-enriquece automaticamente só o que mudou. Entra na fila — nunca roda junto com um scan.
                   </div>
 
                   {enrichLoadingSites && <div style={ss.infoInline}>Carregando sites…</div>}

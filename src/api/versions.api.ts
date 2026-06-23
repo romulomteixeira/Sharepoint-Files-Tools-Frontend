@@ -64,3 +64,21 @@ export async function getVersionedFiles(
 ): Promise<VersionedFilesResponse> {
   return get<VersionedFilesResponse>(`/api/scans/${encodeURIComponent(scanId)}/versioned`, params);
 }
+
+// ─── Delta-update: verificar alterações no MS-Graph ────────────────────────────
+
+export interface ScanDeltaResponse {
+  ok?: boolean;
+  jobId: string;
+  scanId: string;
+  partial?: boolean;
+  sites?: number;
+  source?: string;
+}
+
+// FULL: sem siteIds (re-lista todos os sites, detecta novos). PARCIAL: siteIds.
+export async function checkScanChanges(scanId: string, siteIds?: string[]): Promise<ScanDeltaResponse> {
+  const body: Record<string, unknown> = { scanId };
+  if (siteIds && siteIds.length) body.siteIds = siteIds;
+  return post<ScanDeltaResponse>('/api/jobs/scan-delta', body);
+}
