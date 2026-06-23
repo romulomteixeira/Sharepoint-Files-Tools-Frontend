@@ -7,7 +7,7 @@
  *   - PARCIAL → siteIds = [site_id, ...] (apenas os sites escolhidos).
  */
 
-import { post } from './client';
+import { get, post } from './client';
 
 export interface EnrichVersionsRequest {
   scanId: string;
@@ -32,4 +32,35 @@ export async function enrichVersions(req: EnrichVersionsRequest): Promise<Enrich
   if (req.force != null) body.force = req.force;
   if (req.maxItems != null) body.maxItems = req.maxItems;
   return post<EnrichVersionsResponse>('/api/jobs/versions/enrich', body);
+}
+
+// ─── Filtro: arquivos com mais de X versões (1..102) ───────────────────────────
+
+export interface VersionedFile {
+  siteId: string;
+  siteName: string;
+  driveName: string;
+  fullPath: string;
+  versionCount: number;
+  versionsBytes: number;
+  sizeBytes: number;
+  totalBytes: number;
+}
+
+export interface VersionedFilesResponse {
+  scanId: string;
+  minVersions: number;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  totalVersionsBytes: number;
+  items: VersionedFile[];
+}
+
+export async function getVersionedFiles(
+  scanId: string,
+  params: { minVersions?: number; page?: number; pageSize?: number } = {},
+): Promise<VersionedFilesResponse> {
+  return get<VersionedFilesResponse>(`/api/scans/${encodeURIComponent(scanId)}/versioned`, params);
 }
