@@ -47,6 +47,7 @@ export interface AppConfig {
   versionsAutoForce?:      boolean;
   useVersionWorker?:       boolean;
   nVersionWorkers?:        number;
+  scanWorkers?:            number;   // nº de scan-workers paralelos (1 por app do pool)
   graphExtraApps?:         GraphExtraApp[];
   brandingLoginTitle?:     string;
   brandingLoginSubtitle?:  string;
@@ -177,6 +178,13 @@ export interface WorkersHealth {
       pid?: number | null;
       killed?: boolean;
     }>;
+  };
+  scanWorker?: {
+    expected: number;
+    heartbeatCount: number;
+    localProcessCount: number;
+    extraAppsConfigured: number;
+    configError?: string | null;
   };
 }
 
