@@ -140,6 +140,16 @@ jobs:
 
       # Rulesets OSS p/ frontend: JS, TS, React e OWASP Top 10.
       # GATE em severidade ERROR (alto risco); WARNING/INFO só no painel Security.
+      - name: Semgrep findings (texto, diagnóstico temporário)
+        run: |
+          semgrep scan \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/react \
+            --config p/owasp-top-ten \
+            --severity ERROR \
+            --metrics off || true
+
       - name: Run Semgrep (SARIF, gate em ERROR)
         run: |
           semgrep scan \
