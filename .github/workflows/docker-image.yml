@@ -121,6 +121,77 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  sast-semgrep:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Semgrep
+        run: python -m pip install --upgrade semgrep
+
+      # Rulesets OSS p/ frontend: JS, TS, React e OWASP Top 10.
+      # GATE em severidade ERROR (alto risco); WARNING/INFO só no painel Security.
+      # Escopo: src (código da aplicação). Segurança de Dockerfile/infra é coberta
+      # por Hadolint (dockerfile-lint) e Trivy — este gate foca SAST de código.
+      - name: Run Semgrep (SARIF, gate em ERROR)
+        run: |
+          semgrep scan \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/react \
+            --config p/owasp-top-ten \
+            --severity ERROR \
+            --error \
+            --sarif --output semgrep.sarif \
+            --metrics off \
+            src
+
+      - name: Upload Semgrep SARIF
+        if: ${{ always() && hashFiles('semgrep.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  sast-njsscan:
+    name: SAST - njsscan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install njsscan
+        run: python -m pip install --upgrade njsscan
+
+      # GATE: --exit-warning faz qualquer finding reprovar o PR.
+      - name: Run njsscan (SARIF, gate)
+        run: njsscan --exit-warning --sarif --output njsscan.sarif src
+
+      - name: Upload njsscan SARIF
+        if: ${{ always() && hashFiles('njsscan.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: njsscan.sarif
+          category: njsscan
+
   trivy-repository-scan:
     name: Dependency, secret and IaC scan - Trivy filesystem
     runs-on: ubuntu-latest
@@ -167,6 +238,8 @@ jobs:
       - end-to-end-tests
       - dockerfile-lint
       - secrets-scan
+      - sast-semgrep
+      - sast-njsscan
       - trivy-repository-scan
 
     steps:
