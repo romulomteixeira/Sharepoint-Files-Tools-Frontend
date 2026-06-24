@@ -140,16 +140,8 @@ jobs:
 
       # Rulesets OSS p/ frontend: JS, TS, React e OWASP Top 10.
       # GATE em severidade ERROR (alto risco); WARNING/INFO só no painel Security.
-      - name: Semgrep findings (texto, diagnóstico temporário)
-        run: |
-          semgrep scan \
-            --config p/javascript \
-            --config p/typescript \
-            --config p/react \
-            --config p/owasp-top-ten \
-            --severity ERROR \
-            --metrics off || true
-
+      # Escopo: src (código da aplicação). Segurança de Dockerfile/infra é coberta
+      # por Hadolint (dockerfile-lint) e Trivy — este gate foca SAST de código.
       - name: Run Semgrep (SARIF, gate em ERROR)
         run: |
           semgrep scan \
@@ -160,7 +152,8 @@ jobs:
             --severity ERROR \
             --error \
             --sarif --output semgrep.sarif \
-            --metrics off
+            --metrics off \
+            src
 
       - name: Upload Semgrep SARIF
         if: ${{ always() && hashFiles('semgrep.sarif') != '' }}
