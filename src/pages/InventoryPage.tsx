@@ -18,6 +18,7 @@ import {
   getInventorySites,
   getInventoryDrives,
   getInventoryFiles,
+  getInventoryExtensions,
 } from '../api/inventory.api';
 import {
   exportInventory,
@@ -250,11 +251,22 @@ export default function InventoryPage(): React.ReactElement {
   const [exportError,   setExportError]   = useState<string | null>(null);
   const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Summary (KPIs + topExtensions)
+  // ── Summary (KPIs). Recalcula para o site selecionado (#6).
   const { data: summary, loading: summaryLoading } = useApi(
-    () => (scanId ? getInventorySummary(scanId) : Promise.resolve(null)),
+    () => (scanId ? getInventorySummary(scanId, filterSite || undefined) : Promise.resolve(null)),
+    [scanId, filterSite],
+  );
+
+  // ── Extensões reais do scan (#3): popula o filtro de extensão e o painel lateral.
+  const { data: extData } = useApi(
+    () => (scanId ? getInventoryExtensions(scanId) : Promise.resolve([])),
     [scanId],
   );
+  const scanExt = (extData ?? []).map((e) => ({
+    extension: e.extension,
+    fileCount: e.filesCount,
+    totalBytes: e.bytesTotal,
+  }));
 
   // ── Carrega sites para dropdown (uma única vez por scan)
   useEffect(() => {
@@ -414,7 +426,7 @@ export default function InventoryPage(): React.ReactElement {
   }
 
   // ── Derivados
-  const topExt = summary?.topExtensions?.slice(0, 12) ?? [];
+  const topExt = scanExt.slice(0, 12);
   const maxExt = topExt[0]?.fileCount ?? 1;
 
   const siteMap = useMemo(
@@ -540,7 +552,7 @@ export default function InventoryPage(): React.ReactElement {
             onChange={setFilterExt}
             options={[
               { value: '', label: 'Todas as extensões' },
-              ...(summary?.topExtensions ?? []).map(e => ({
+              ...scanExt.map(e => ({
                 value: e.extension,
                 label: `${e.extension || '(sem ext)'}  ·  ${fmtNum(e.fileCount)} arqs`,
               })),
