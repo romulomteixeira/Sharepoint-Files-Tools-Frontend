@@ -46,6 +46,53 @@ function fmtDate(iso: string | undefined): string {
   return new Date(iso).toLocaleString('pt-BR');
 }
 
+// Donut (pizza) SVG sem dependência: top sites por ESPAÇO TOTAL (arquivos+versões).
+// Usa stroke-dasharray num anel (robusto inclusive p/ um único site = 100%).
+const DONUT_PALETTE = ['#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#94a3b8'];
+
+function SitesDonut({ sites }: { sites: SiteRollup[] }) {
+  const TOP = 10;
+  const top = sites.slice(0, TOP).map(s => ({ name: s.siteName || s.siteUrl || s.siteId, bytes: Number(s.totalBytes ?? 0) }));
+  const restBytes = sites.slice(TOP).reduce((a, s) => a + Number(s.totalBytes ?? 0), 0);
+  const slices = restBytes > 0 ? [...top, { name: `Outros (${sites.length - TOP} sites)`, bytes: restBytes }] : top;
+  const total = slices.reduce((a, x) => a + x.bytes, 0) || 1;
+  const rMid = 60, sw = 30, C = 2 * Math.PI * rMid;
+  let acc = 0;
+  const arcs = slices.map((sl, i) => {
+    const frac = sl.bytes / total;
+    const dash = frac * C;
+    const offset = acc; acc += dash;
+    return { ...sl, frac, color: DONUT_PALETTE[i % DONUT_PALETTE.length], dash, offset };
+  });
+  return (
+    <div className="row" style={{ gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+      <svg width={170} height={170} viewBox="0 0 170 170" role="img" aria-label="Top sites por espaço total">
+        <g transform="rotate(-90 85 85)">
+          {arcs.map((a, i) => (
+            <circle
+              key={i}
+              cx={85} cy={85} r={rMid} fill="none"
+              stroke={a.color} strokeWidth={sw}
+              strokeDasharray={`${a.dash} ${Math.max(0, C - a.dash)}`}
+              strokeDashoffset={-a.offset}
+            />
+          ))}
+        </g>
+      </svg>
+      <div className="stack" style={{ gap: 5, flex: 1, minWidth: 220 }}>
+        {arcs.map((a, i) => (
+          <div key={i} className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: a.color, flexShrink: 0 }} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+            <span className="small muted" style={{ whiteSpace: 'nowrap' }}>{fmtBytes(a.bytes)}</span>
+            <span className="small faint" style={{ minWidth: 40, textAlign: 'right' }}>{Math.round(a.frac * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Calcula % de conclusão a partir do progresso do scan. */
 function calcPercent(p: ScanProgress | undefined, status: string): number {
   if (!p) return 0;
@@ -160,7 +207,7 @@ export default function DashboardPage(): React.ReactElement {
     const [sumRes, topRes, sitesRes, versionedRes] = await Promise.allSettled([
       getInventorySummary(id),
       isCompleted ? getTopFiles(id, { limit: 10 }) : Promise.resolve([]),
-      isCompleted ? getInventorySites(id, { pageSize: 20, sort: 'bytes_desc' }) : Promise.resolve(null),
+      isCompleted ? getInventorySites(id, { pageSize: 20, sort: 'total_bytes' }) : Promise.resolve(null),
       isCompleted ? getTopFiles(id, { limit: 20, metric: 'versions' }) : Promise.resolve([]),
     ]);
     if (sumRes.status === 'fulfilled') setSummary(sumRes.value);
@@ -409,27 +456,40 @@ export default function DashboardPage(): React.ReactElement {
         </Card>
       )}
 
-      {/* ── Linha inferior: Top Extensões + Top Arquivos ────────────────────── */}
-      {(topExt.length > 0 || topFiles.length > 0) && (
+      {/* ── 1º gráfico: Top sites por espaço total (pizza) ──────────────────── */}
+      {topSites.length > 0 && (
+        <Card title="Top 20 sites por utilização" sub="Espaço total ocupado (arquivos + versões)">
+          <SitesDonut sites={topSites} />
+        </Card>
+      )}
+
+      {/* ── 2º: Top versionados + Top maiores arquivos (lado a lado) ────────── */}
+      {(topVersioned.length > 0 || topFiles.length > 0) && (
         <div className="two-col">
 
-          {topExt.length > 0 && (
-            <Card title="Extensões mais frequentes" sub="Por quantidade de arquivos">
-              <div className="stack" style={{ gap: 8 }}>
-                {topExt.map(ext => {
-                  const pctExt = Math.round((ext.fileCount / maxExt) * 100);
-                  return (
-                    <div key={ext.extension}>
-                      <div className="row" style={{ marginBottom: 3, gap: 6 }}>
-                        <span className="mono" style={{ fontWeight: 700, minWidth: 60 }}>{ext.extension || '(sem extensão)'}</span>
-                        <span className="spacer" />
-                        <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
-                        <span className="small faint" style={{ minWidth: 70, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
-                      </div>
-                      <div className="bar-track"><div className="bar-fill" style={{ width: `${pctExt}%` }} /></div>
-                    </div>
-                  );
-                })}
+          {topVersioned.length > 0 && (
+            <Card title="Top 20 arquivos com mais versões" sub="Mais versionados (scan selecionado)">
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr><th>#</th><th>Nome</th><th>Ext.</th><th className="td-r">Versões</th><th className="td-r">Total</th></tr>
+                  </thead>
+                  <tbody>
+                    {topVersioned.map((f, i) => (
+                      <tr key={f.id ?? i}>
+                        <td className="td-mute" style={{ width: 24 }}>{i + 1}</td>
+                        <td className="td-ellipsis" style={{ maxWidth: 200 }}>
+                          {f.webUrl
+                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
+                            : f.name}
+                        </td>
+                        <td className="td-mute">{f.extension || '—'}</td>
+                        <td className="td-r">{fmtNum(f.versionCount)}</td>
+                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </Card>
           )}
@@ -468,32 +528,30 @@ export default function DashboardPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Gráficos adicionais ─────────────────────────────────────────────── */}
-
-      {topSites.length > 0 && (
-        <Card title="Top 20 sites por utilização" sub="Volume total de arquivos (scan selecionado)">
-          <div className="stack" style={{ gap: 7 }}>
-            {topSites.map((site, i) => {
-              const maxBytes = topSites[0]?.totalBytes ?? 1;
-              const pct = Math.round(((site.totalBytes ?? 0) / maxBytes) * 100);
-              return (
-                <div key={site.siteId}>
-                  <div className="row" style={{ gap: 6, marginBottom: 2 }}>
-                    <span className="faint" style={{ width: 18, textAlign: 'right' }}>{i + 1}</span>
-                    <span style={{ fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={site.siteUrl}>{site.siteName || site.siteUrl || site.siteId}</span>
-                    <span className="small muted" style={{ whiteSpace: 'nowrap' }}>{fmtNum(site.totalFiles)} arq.</span>
-                    <span className="small muted" style={{ whiteSpace: 'nowrap', minWidth: 72, textAlign: 'right' }}>{fmtBytes(site.totalBytes)}</span>
-                  </div>
-                  <div className="bar-track" style={{ marginLeft: 24 }}><div className="bar-fill" style={{ width: `${pct}%` }} /></div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
-      {(topExtByBytes.length > 0 || topVersioned.length > 0) && (
+      {/* ── 3º: Extensões (frequência + espaço) ─────────────────────────────── */}
+      {(topExt.length > 0 || topExtByBytes.length > 0) && (
         <div className="two-col">
+
+          {topExt.length > 0 && (
+            <Card title="Extensões mais frequentes" sub="Por quantidade de arquivos">
+              <div className="stack" style={{ gap: 8 }}>
+                {topExt.map(ext => {
+                  const pctExt = Math.round((ext.fileCount / maxExt) * 100);
+                  return (
+                    <div key={ext.extension}>
+                      <div className="row" style={{ marginBottom: 3, gap: 6 }}>
+                        <span className="mono" style={{ fontWeight: 700, minWidth: 60 }}>{ext.extension || '(sem extensão)'}</span>
+                        <span className="spacer" />
+                        <span className="small muted">{fmtNum(ext.fileCount)} arq.</span>
+                        <span className="small faint" style={{ minWidth: 70, textAlign: 'right' }}>{fmtBytes(ext.totalBytes)}</span>
+                      </div>
+                      <div className="bar-track"><div className="bar-fill" style={{ width: `${pctExt}%` }} /></div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {topExtByBytes.length > 0 && (
             <Card title="Top 10 extensões por espaço usado" sub="Volume total (arquivos + versões)">
@@ -512,33 +570,6 @@ export default function DashboardPage(): React.ReactElement {
                     </div>
                   );
                 })}
-              </div>
-            </Card>
-          )}
-
-          {topVersioned.length > 0 && (
-            <Card title="Top 20 arquivos com mais versões" sub="Últimos 30 dias (scan selecionado)">
-              <div className="tbl-wrap">
-                <table className="tbl">
-                  <thead>
-                    <tr><th>#</th><th>Nome</th><th>Ext.</th><th className="td-r">Versões</th><th className="td-r">Total</th></tr>
-                  </thead>
-                  <tbody>
-                    {topVersioned.map((f, i) => (
-                      <tr key={f.id ?? i}>
-                        <td className="td-mute" style={{ width: 24 }}>{i + 1}</td>
-                        <td className="td-ellipsis" style={{ maxWidth: 200 }}>
-                          {f.webUrl
-                            ? <a href={f.webUrl} target="_blank" rel="noreferrer" className="td-link">{f.name}</a>
-                            : f.name}
-                        </td>
-                        <td className="td-mute">{f.extension || '—'}</td>
-                        <td className="td-r">{fmtNum(f.versionCount)}</td>
-                        <td className="td-r">{fmtBytes(f.totalBytes)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </Card>
           )}
