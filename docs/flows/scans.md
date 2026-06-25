@@ -17,10 +17,16 @@ Backend inicia jobs de varredura
         ↓
 Status: running  ←──── jobs processando sites/drives
         ↓
-Status: completed  (ou failed / cancelled)
+Status: ENRICHING  ←──── inventário pronto, enriquecendo versões
+        ↓
+Status: DONE  (ou DONE_WITH_ERRORS / failed / cancelled)
         ↓
 Inventário disponível em /inventory/:scanId
 ```
+
+> **Conclusão só após as versões:** o scan permanece em `ENRICHING` enquanto o
+> enriquecimento de versões não termina; só então vai a `DONE`/`DONE_WITH_ERRORS`.
+> Isso garante que "concluído" signifique **inventário + versões** prontos.
 
 ---
 
@@ -32,6 +38,15 @@ Inventário disponível em /inventory/:scanId
 4. O scan aparece na tabela com status `pending` ou `running`
 
 > O botão fica desabilitado durante a criação para evitar cliques duplos.
+
+### Selecionar os maiores sites do tenant
+
+Ao montar um scan por sites específicos, o botão **"Trazer maiores sites"**
+(com um limite `N`) consulta `GET /api/sites/by-storage?limit=N`, que ranqueia
+os sites do tenant por armazenamento (decrescente) e os adiciona diretamente aos
+**sites selecionados** (escopo "selecionados"). Cada resultado mostra um selo com
+o espaço ocupado (`storageHuman`). Útil para focar o scan/expurgo nos sites que
+mais oneram o tenant.
 
 ---
 
@@ -52,7 +67,7 @@ A tabela exibe, para cada scan:
 | Coluna | Descrição |
 |---|---|
 | ID | Primeiros 8 caracteres do UUID do scan |
-| Status | Badge colorido (`pending`, `running`, `completed`, `failed`, `cancelled`) |
+| Status | Badge colorido (`pending`, `running`, `ENRICHING`, `DONE`, `DONE_WITH_ERRORS`, `failed`, `cancelled`) |
 | Sites | Número de sites SharePoint encontrados |
 | Arquivos | Total de arquivos indexados |
 | Volume | Espaço total ocupado (formatado: B, KB, MB, GB, TB) |
@@ -67,7 +82,9 @@ A tabela exibe, para cada scan:
 |---|---|---|
 | `pending` | Amarelo | Scan criado, aguardando início do processamento |
 | `running` | Azul | Varredura em andamento |
-| `completed` | Verde | Concluído com sucesso — inventário disponível |
+| `ENRICHING` | Azul | Inventário pronto; enriquecimento de versões em curso (ainda não concluído) |
+| `DONE` | Verde | Concluído com sucesso (inventário + versões) — inventário disponível |
+| `DONE_WITH_ERRORS` | Laranja | Concluído, mas houve falhas no scan ou no enriquecimento |
 | `failed` | Vermelho | Falha durante o processamento |
 | `cancelled` | Cinza | Cancelado manualmente |
 
@@ -80,6 +97,7 @@ A tabela exibe, para cada scan:
 | `GET` | `/api/scans/list` | Lista todos os scans (mais recentes primeiro) |
 | `POST` | `/api/scans` | Cria um novo scan |
 | `GET` | `/api/scans/:scanId/status` | Retorna o status atual do scan |
+| `GET` | `/api/sites/by-storage?limit=N` | Maiores sites do tenant por armazenamento (botão "Trazer maiores sites") |
 
 ### Exemplo de resposta — `GET /api/scans/list`
 
@@ -87,7 +105,7 @@ A tabela exibe, para cada scan:
 [
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "status": "completed",
+    "status": "DONE",
     "createdAt": "2026-05-22T14:00:00Z",
     "startedAt": "2026-05-22T14:00:05Z",
     "finishedAt": "2026-05-22T14:23:41Z",

@@ -21,7 +21,7 @@ Browser → Nginx :3000
 
 | Tela | Rota | O que faz |
 |---|---|---|
-| Dashboard | `/` | Resumo do último scan: sites, drives, arquivos e volume total |
+| Dashboard | `/` | Resumo do último scan + gráficos: **pizza** de top sites por **utilização total** (arquivos + versões), top 20 mais versionados e top 10 maiores |
 | Sites e scans | `/scans` | Busca e seleciona sites, inicia scans parciais ou completos |
 | Progresso | `/jobs/:jobId` | Acompanha em tempo real o andamento de um job via SSE |
 | Inventário | `/inventory`, `/inventory/:scanId` | Filtra, pagina e exporta arquivos em CSV ou JSONL |
