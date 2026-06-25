@@ -71,9 +71,49 @@ export interface LatestSiteDrilldown {
   }>;
 }
 
-/** Resumo agregado do scan (totais de sites, drives, bytes, extensões). */
-export async function getInventorySummary(scanId: string): Promise<InventorySummary> {
-  return get<InventorySummary>(`/api/inventory/${scanId}/summary`);
+/** Resumo agregado do scan (totais de sites, drives, bytes, extensões).
+ * Normaliza os dois contratos do backend: o legado (loadMeta) já usa total*,
+ * o rollup usa *Count/bytesTotal. Com siteId, recalcula os totais para o site. */
+export async function getInventorySummary(
+  scanId: string,
+  siteId?: string,
+): Promise<InventorySummary> {
+  const raw = await get<Record<string, unknown>>(
+    `/api/inventory/${scanId}/summary`,
+    siteId ? { siteId } : undefined,
+  );
+  const num = (...vals: unknown[]): number => {
+    for (const v of vals) { const n = Number(v); if (Number.isFinite(n) && v != null) return n; }
+    return 0;
+  };
+  return {
+    ...(raw as object),
+    totalSites:    num(raw.totalSites,    raw.sitesCount),
+    totalDrives:   num(raw.totalDrives,   raw.drivesCount),
+    totalFiles:    num(raw.totalFiles,    raw.filesCount),
+    totalBytes:    num(raw.totalBytes,    raw.bytesTotal),
+    totalVersions: raw.totalVersions != null
+      ? num(raw.totalVersions)
+      : (raw.versionedFilesCount != null ? num(raw.versionedFilesCount) : undefined),
+  } as InventorySummary;
+}
+
+export interface InventoryExtensionItem {
+  extension: string;
+  filesCount: number;
+  bytesTotal: number;
+}
+
+/** Extensões reais do scan (popula o filtro de extensão e o painel "Top Extensões"). */
+export async function getInventoryExtensions(
+  scanId: string,
+  limit = 500,
+): Promise<InventoryExtensionItem[]> {
+  const r = await get<{ items: InventoryExtensionItem[] }>(
+    `/api/inventory/${scanId}/extensions`,
+    { limit },
+  );
+  return r.items ?? [];
 }
 
 export async function getLatestInventorySites(params: {
