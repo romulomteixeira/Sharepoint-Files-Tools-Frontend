@@ -5,8 +5,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Search } from 'lucide-react';
-import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSitesPreview, RECOMMENDED_FILTERS } from '../api/scans.api';
+import { Play, Search, HardDrive } from 'lucide-react';
+import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSitesPreview, getSitesByStorage, RECOMMENDED_FILTERS } from '../api/scans.api';
 import type { ScanMode, SiteSearchResult, SitePreviewExcluded, SitePreviewCounts } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
@@ -59,6 +59,8 @@ export default function ScansPage(): React.ReactElement {
   const { data: scans, loading, error, refetch } = useApi(listScans, []);
   const [query, setQuery] = useState('*');
   const [siteLimit, setSiteLimit] = useState(50);
+  const [byStorageLimit, setByStorageLimit] = useState(25);
+  const [loadingByStorage, setLoadingByStorage] = useState(false);
   const [results, setResults] = useState<SiteSearchResult[]>([]);
   const [selected, setSelected] = useState<SiteSearchResult[]>([]);
   const [page, setPage] = useState(1);
@@ -129,6 +131,25 @@ export default function ScansPage(): React.ReactElement {
       setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
     } finally {
       setSearching(false);
+    }
+  }
+
+  // #4: traz os sites que mais ocupam espaço no tenant e já os coloca na seleção.
+  async function handleLoadByStorage(): Promise<void> {
+    setLoadingByStorage(true);
+    setSearchError(null);
+    try {
+      const items = await getSitesByStorage(byStorageLimit);
+      setResults(items);
+      setSelected(items);
+      setScope('selected');
+      setPreviewCounts(null);
+      setExcludedPreview([]);
+      setPage(1);
+    } catch (err) {
+      setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao listar sites por tamanho.');
+    } finally {
+      setLoadingByStorage(false);
     }
   }
 
@@ -262,6 +283,26 @@ export default function ScansPage(): React.ReactElement {
             {searching ? 'Carregando...' : 'Carregar sites'}
           </Btn>
         </div>
+        <div className="row" style={{ alignItems: 'flex-end', marginTop: 'var(--gap-sm)', gap: 'var(--gap-sm)', flexWrap: 'wrap' }}>
+          <div className="field" style={{ width: 180 }}>
+            <label className="field-label" htmlFor="by-storage-limit">Maiores sites do tenant</label>
+            <input
+              id="by-storage-limit"
+              className="input"
+              type="number"
+              min={1}
+              max={200}
+              value={byStorageLimit}
+              onChange={(e) => setByStorageLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
+            />
+          </div>
+          <Btn icon={HardDrive} onClick={handleLoadByStorage} disabled={loadingByStorage}>
+            {loadingByStorage ? 'Consultando…' : 'Trazer maiores sites'}
+          </Btn>
+          <span className="small muted" style={{ flex: '1 1 220px' }}>
+            Lista os sites que mais ocupam espaço (relatório de uso do tenant) e já os adiciona à seleção do scan.
+          </span>
+        </div>
         <label className="check-row" style={{ alignItems: 'center', marginTop: 'var(--gap-sm)' }}>
           <input
             type="checkbox"
@@ -319,6 +360,9 @@ export default function ScansPage(): React.ReactElement {
                   <input type="checkbox" checked={selectedIds.has(site.id)} onChange={() => toggleSite(site)} />
                   <span>
                     <strong>{site.displayName || site.webUrl}</strong>
+                    {site.storageHuman && (
+                      <span className="pill pill-mute" style={{ marginLeft: 6 }}>{site.storageHuman}</span>
+                    )}
                     <small className="mono" style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>{site.webUrl}</small>
                   </span>
                 </label>

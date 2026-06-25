@@ -51,6 +51,16 @@ export interface SiteSearchResult {
   id: string;
   displayName: string;
   webUrl: string;
+  storageBytes?: number;
+  storageHuman?: string;
+  fileCount?: number;
+}
+
+/** Sites do tenant ranqueados por espaço ocupado (#4). Resolvidos para id Graph,
+ * prontos para entrar em "sites selecionados". */
+export async function getSitesByStorage(limit = 25): Promise<SiteSearchResult[]> {
+  const r = await get<{ items: SiteSearchResult[] }>('/api/sites/by-storage', { limit });
+  return r.items ?? [];
 }
 
 interface LegacyScan {
