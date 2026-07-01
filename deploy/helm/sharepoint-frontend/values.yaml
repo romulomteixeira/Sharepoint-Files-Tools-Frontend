@@ -1,0 +1,51 @@
+## SharePoint Monitor — Frontend (Nginx SPA).
+## O nginx da imagem faz proxy_pass http://backend:8787 para /api, /health, etc.
+## Este chart cria um Service ExternalName chamado "backend" apontando para o
+## gateway do backend, então a imagem funciona SEM rebuild.
+
+image:
+  repository: romulomteixeira/sharepoint-monitor-frontend
+  # Defina no deploy: --set image.tag=<tag>
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicas: 1
+containerPort: 80
+
+## Onde está o gateway do backend (chart sharepoint-monitor). O nginx resolve o
+## host "backend" via ExternalName → este FQDN. Ajuste o release/namespace se
+## diferentes do padrão (release "spm", namespace "sharepoint-monitor").
+backend:
+  gatewayServiceFQDN: "spm-sharepoint-monitor-gateway.sharepoint-monitor.svc.cluster.local"
+  port: 8787
+
+service:
+  ## LoadBalancer → IP público (ponto de entrada dos usuários).
+  type: LoadBalancer
+  port: 80
+
+resources:
+  requests: { cpu: "50m", memory: "64Mi", ephemeral-storage: "128Mi" }
+  limits: { cpu: "200m", memory: "128Mi", ephemeral-storage: "512Mi" }
+
+podSecurityContext: {}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+    add: ["NET_BIND_SERVICE"] # nginx faz bind na porta 80
+
+probes:
+  path: /
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: sharepoint-monitor.local
+  path: /
+  pathType: Prefix
+  tls: []
