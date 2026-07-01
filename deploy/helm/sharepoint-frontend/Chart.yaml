@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sharepoint-frontend
+description: SPA (Nginx) do SharePoint Monitor; faz proxy de /api para o gateway do backend.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
