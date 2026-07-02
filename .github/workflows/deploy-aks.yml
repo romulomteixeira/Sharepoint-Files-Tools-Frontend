@@ -1,0 +1,69 @@
+name: Deploy to AKS
+
+# Deploy MANUAL do frontend no cluster (helm upgrade --install).
+# Auth: OIDC (app gh-oidc-app-deploy, FIC no branch main).
+# Pré-requisito: backend já instalado (o Service ExternalName "backend" resolve
+# para o gateway dele).
+#
+# Secrets exigidos neste repo:
+#   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID  (OIDC)
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag da imagem (ex.: sha-<commit> ou latest)"
+        required: true
+        default: "latest"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AKS_RG: rg-spmonitor-dev
+  AKS_NAME: aks-spmonitor-dev
+  NAMESPACE: sharepoint-monitor
+  RELEASE: spm-fe
+  # Gateway do backend (release "spm" no mesmo namespace).
+  BACKEND_FQDN: spm-sharepoint-monitor-gateway.sharepoint-monitor.svc.cluster.local
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Cluster ligado? (start se preciso)
+        run: |
+          state=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query "powerState.code" -o tsv)
+          if [ "$state" != "Running" ]; then
+            echo "Cluster está '$state' — ligando para o deploy..."
+            az aks start -g "$AKS_RG" -n "$AKS_NAME"
+          fi
+
+      - name: Credenciais do cluster
+        run: az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
+
+      - name: Helm upgrade --install
+        run: |
+          helm upgrade --install "$RELEASE" deploy/helm/sharepoint-frontend \
+            -n "$NAMESPACE" --create-namespace \
+            --set image.tag="${{ inputs.image_tag }}" \
+            --set backend.gatewayServiceFQDN="$BACKEND_FQDN" \
+            --wait --timeout 5m
+
+      - name: Verificação pós-deploy
+        if: always()
+        run: |
+          kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=sharepoint-frontend -o wide || true
+          kubectl -n "$NAMESPACE" get svc || true
+          echo "── IP público do frontend ──"
+          kubectl -n "$NAMESPACE" get svc "$RELEASE-sharepoint-frontend" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true
+          echo
