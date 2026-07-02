@@ -30,14 +30,15 @@ resources:
   limits: { cpu: "200m", memory: "128Mi", ephemeral-storage: "512Mi" }
 
 podSecurityContext: {}
+# A imagem é alpine + pacote nginx: o master roda como ROOT (por design do
+# pacote) e escreve em /var/lib/nginx (dono: usuário nginx). Restringir
+# capabilities (drop ALL) quebra o boot mesmo adicionando SETUID/SETGID/CHOWN —
+# root sem DAC_OVERRIDE falha nos mkdir/open desses diretórios. Usamos as caps
+# DEFAULT do runtime (mesmo comportamento do docker-compose, onde a imagem é
+# validada), sem escalada de privilégio. Hardening futuro: rodar o nginx
+# rootless via mudanças no Dockerfile (user nginx + paths graváveis).
 containerSecurityContext:
   allowPrivilegeEscalation: false
-  capabilities:
-    drop: ["ALL"]
-    # nginx oficial: o master roda como root e PRECISA de SETUID/SETGID (criar
-    # os workers como usuário nginx) + CHOWN (dirs de cache/log) + bind na 80.
-    # Só NET_BIND_SERVICE derruba o master no boot (CrashLoopBackOff).
-    add: ["NET_BIND_SERVICE", "SETUID", "SETGID", "CHOWN"]
 
 probes:
   path: /
