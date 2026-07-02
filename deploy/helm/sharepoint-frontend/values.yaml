@@ -34,7 +34,10 @@ containerSecurityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop: ["ALL"]
-    add: ["NET_BIND_SERVICE"] # nginx faz bind na porta 80
+    # nginx oficial: o master roda como root e PRECISA de SETUID/SETGID (criar
+    # os workers como usuário nginx) + CHOWN (dirs de cache/log) + bind na 80.
+    # Só NET_BIND_SERVICE derruba o master no boot (CrashLoopBackOff).
+    add: ["NET_BIND_SERVICE", "SETUID", "SETGID", "CHOWN"]
 
 probes:
   path: /
