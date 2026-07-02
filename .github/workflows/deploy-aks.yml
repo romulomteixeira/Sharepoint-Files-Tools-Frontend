@@ -70,3 +70,11 @@ jobs:
           kubectl -n "$NAMESPACE" get svc "$RELEASE-sharepoint-frontend" \
             -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true
           echo
+          echo "── logs do frontend (diagnóstico) ──"
+          kubectl -n "$NAMESPACE" logs --tail=40 --prefix --previous \
+            -l app.kubernetes.io/name=sharepoint-frontend 2>/dev/null \
+            || kubectl -n "$NAMESPACE" logs --tail=40 --prefix \
+                 -l app.kubernetes.io/name=sharepoint-frontend || true
+          echo "── eventos do pod ──"
+          kubectl -n "$NAMESPACE" describe pod \
+            -l app.kubernetes.io/name=sharepoint-frontend 2>/dev/null | tail -15 || true
