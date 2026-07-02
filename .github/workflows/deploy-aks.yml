@@ -51,10 +51,13 @@ jobs:
         run: az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
 
       - name: Helm upgrade --install
+        env:
+          # Input via env (não interpolar ${{ }} no script — evita script injection).
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           helm upgrade --install "$RELEASE" deploy/helm/sharepoint-frontend \
             -n "$NAMESPACE" --create-namespace \
-            --set image.tag="${{ inputs.image_tag }}" \
+            --set image.tag="$IMAGE_TAG" \
             --set backend.gatewayServiceFQDN="$BACKEND_FQDN" \
             --wait --timeout 5m
 
