@@ -1,0 +1,128 @@
+name: Deploy Static (Storage Account)
+
+# Deploy MANUAL do frontend como SITE ESTÁTICO: build Vite → upload no $web do
+# Storage Account → purge do Front Door. COEXISTE com o deploy no AKS
+# (deploy-aks.yml) — modo dual; nenhum dos dois interfere no outro.
+#
+# Auth: OIDC (mesmo app gh-oidc-app-deploy do deploy-aks). Sem chaves de storage.
+# Pré-requisito: infra do modo estático aplicada no repo terraform-aks-deploy
+# (Storage Account com static website, Front Door e roles para o SP:
+#  Storage Blob Data Contributor no SA + CDN Profile Contributor no AFD).
+#
+# Secrets exigidos neste repo (os mesmos do deploy-aks):
+#   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID  (OIDC)
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  # Valores vindos dos outputs do terraform-aks-deploy (ambiente dev):
+  #   static_site_storage_account / frontdoor_profile_name / resource_group_name
+  AZ_RG: rg-spmonitor-dev
+  STORAGE_ACCOUNT: stspmonitordevfe
+  AFD_PROFILE: afd-spmonitor-dev
+  AFD_ENDPOINT: fde-spmonitor-dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências (lockfile)
+        run: npm ci --ignore-scripts
+
+      # VITE_API_BASE_URL VAZIO de propósito: atrás do Front Door o site e a
+      # API compartilham a mesma origem (rota /api/* → gateway do AKS), igual
+      # ao proxy do nginx no modo AKS. Mesmo artefato nos dois modos.
+      - name: Build (Vite)
+        env:
+          VITE_API_BASE_URL: ""
+        run: npm run build
+
+      # Carimbo de versão para auditoria do que está servido (GET /version.json).
+      - name: Gravar version.json
+        run: |
+          printf '{"sha":"%s","ref":"%s","builtAt":"%s"}\n' \
+            "$GITHUB_SHA" "$GITHUB_REF_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > dist/version.json
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Ordem anti-janela-quebrada: primeiro os chunks (assets/), por último o
+      # index.html — assim o index publicado nunca referencia chunk inexistente.
+      #
+      # Cache-Control:
+      #   assets com hash no nome → public, max-age=1y, immutable
+      #   index.html e demais arquivos de raiz → no-cache (o AFD revalida a cada
+      #   deploy; evita index velho apontando para chunks já removidos)
+      - name: Upload assets (cache imutável)
+        run: |
+          az storage blob upload-batch \
+            --auth-mode login \
+            --account-name "$STORAGE_ACCOUNT" \
+            --destination '$web' \
+            --source dist \
+            --pattern 'assets/*' \
+            --content-cache-control "public, max-age=31536000, immutable" \
+            --overwrite
+
+      - name: Upload arquivos de raiz (no-cache, index.html por último)
+        run: |
+          shopt -s nullglob
+          for f in dist/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            [ "$name" = "index.html" ] && continue
+            az storage blob upload \
+              --auth-mode login \
+              --account-name "$STORAGE_ACCOUNT" \
+              --container-name '$web' \
+              --name "$name" \
+              --file "$f" \
+              --content-cache-control "no-cache" \
+              --overwrite
+          done
+          az storage blob upload \
+            --auth-mode login \
+            --account-name "$STORAGE_ACCOUNT" \
+            --container-name '$web' \
+            --name index.html \
+            --file dist/index.html \
+            --content-cache-control "no-cache" \
+            --overwrite
+
+      # Purge do edge: garante que o AFD busque o index.html novo imediatamente.
+      - name: Purge do cache do Front Door
+        run: |
+          az afd endpoint purge \
+            --resource-group "$AZ_RG" \
+            --profile-name "$AFD_PROFILE" \
+            --endpoint-name "$AFD_ENDPOINT" \
+            --content-paths "/*"
+
+      - name: Resumo do deploy
+        run: |
+          HOSTNAME=$(az afd endpoint show \
+            --resource-group "$AZ_RG" \
+            --profile-name "$AFD_PROFILE" \
+            --endpoint-name "$AFD_ENDPOINT" \
+            --query hostName -o tsv)
+          {
+            echo "## 🚀 Frontend estático publicado"
+            echo "- URL: https://$HOSTNAME"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Versão servida: https://$HOSTNAME/version.json"
+          } >> "$GITHUB_STEP_SUMMARY"
