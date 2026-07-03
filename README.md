@@ -6,13 +6,23 @@ Interface web do **SharePoint Monitor**: visibilidade completa sobre o inventár
 
 ## Visão geral
 
-O frontend é uma SPA (Single Page Application) em **React + TypeScript**, servida por **Nginx** e comunicando-se exclusivamente com o backend via API REST e SSE (Server-Sent Events). Em produção Docker, o Nginx atua como proxy reverso entre o browser e o backend — sem necessidade de configurar CORS ou endereço do servidor na aplicação.
+O frontend é uma SPA (Single Page Application) em **React + TypeScript**, comunicando-se exclusivamente com o backend via API REST e SSE (Server-Sent Events). Há **dois modos de deploy em produção, que coexistem** (o mesmo artefato de build serve os dois):
+
+**Modo AKS (Nginx)** — o Nginx atua como proxy reverso entre o browser e o backend; sem CORS nem endereço de servidor na aplicação:
 
 ```
 Browser → Nginx :3000
               ├── /api/*     → proxy → backend:8787
               ├── /health    → proxy → backend:8787
               └── /*         → SPA (index.html)
+```
+
+**Modo estático (Storage Account + Front Door)** — o build fica no container `$web` de um Storage Account e o Azure Front Door preserva a mesma origem entre site e API (auth por cookie intacta, `VITE_API_BASE_URL` continua vazio):
+
+```
+Browser → Front Door
+              ├── /api/*, /health, /api-docs → gateway do backend (AKS)
+              └── /*                          → Storage $web (SPA)
 ```
 
 ---
@@ -167,3 +177,19 @@ Configure em **Settings → Secrets and variables → Actions** do repositório:
 | Variable | `IMAGE_NAME` | `romulomteixeira/sharepoint-monitor-frontend` |
 | Secret | `DOCKERHUB_USERNAME` | seu usuário Docker Hub |
 | Secret | `DOCKERHUB_TOKEN` | token de acesso Docker Hub |
+
+---
+
+## Deploy (modo dual — ambos manuais)
+
+| Workflow | Destino | O que faz |
+|---|---|---|
+| `deploy-aks.yml` | Cluster AKS | `helm upgrade --install` do chart `deploy/helm/sharepoint-frontend` com a imagem do Docker Hub |
+| `deploy-static.yml` | Storage Account (`$web`) | Build Vite → upload com `Cache-Control` diferenciado (assets imutáveis, `index.html` no-cache) → purge do Front Door |
+
+Ambos usam os mesmos secrets OIDC (`AZURE_CLIENT_ID` / `AZURE_TENANT_ID` /
+`AZURE_SUBSCRIPTION_ID`). O modo estático exige a infra do repo
+`terraform-aks-deploy` aplicada (`staticsite.tf` + `frontdoor.tf`) e o backend
+com o gateway exposto via LoadBalancer (ver `values-azure.yaml` do chart do
+backend). A versão servida no modo estático pode ser conferida em
+`https://<endpoint-afd>/version.json`.
