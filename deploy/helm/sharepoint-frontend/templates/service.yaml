@@ -6,6 +6,12 @@ metadata:
     {{- include "fe.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  # Allowlist aplicada pelo Azure Load Balancer (NSG) — tráfego fora destes
+  # CIDRs é descartado na borda, antes de chegar ao nginx.
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     {{- include "fe.selectorLabels" . | nindent 4 }}
   ports:

@@ -47,6 +47,16 @@ jobs:
             az aks start -g "$AKS_RG" -n "$AKS_NAME"
           fi
 
+      # API server restrito por IP (rede privada): libera o runner
+      # temporariamente; a allowlist permanente é restaurada no passo 'always'.
+      - name: Liberar IP do runner no API server (temporário)
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "runner: $RUNNER_IP"
+          PERM="${{ vars.API_ALLOWED_RANGES || '200.124.78.234/32' }}"
+          az aks update -g "$AKS_RG" -n "$AKS_NAME" \
+            --api-server-authorized-ip-ranges "$PERM,$RUNNER_IP/32" -o none
+
       - name: Credenciais do cluster
         run: az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
 
@@ -78,3 +88,10 @@ jobs:
           echo "── eventos do pod ──"
           kubectl -n "$NAMESPACE" describe pod \
             -l app.kubernetes.io/name=sharepoint-frontend 2>/dev/null | tail -15 || true
+
+      - name: Restaurar allowlist do API server
+        if: always()
+        run: |
+          PERM="${{ vars.API_ALLOWED_RANGES || '200.124.78.234/32' }}"
+          az aks update -g "$AKS_RG" -n "$AKS_NAME" \
+            --api-server-authorized-ip-ranges "$PERM" -o none || true

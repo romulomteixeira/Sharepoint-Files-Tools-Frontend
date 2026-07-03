@@ -21,9 +21,14 @@ backend:
   port: 8787
 
 service:
-  ## LoadBalancer → IP público (ponto de entrada dos usuários).
+  ## LoadBalancer → IP público (ÚNICO ponto de entrada da stack; o gateway do
+  ## backend é ClusterIP e só é alcançado via proxy interno do nginx).
   type: LoadBalancer
   port: 80
+  ## Allowlist de rede no Azure LB: pacotes de IPs fora desta lista nem chegam
+  ## ao nginx. Vazio = aberto. Decisão do projeto: restrito ao IP do admin.
+  loadBalancerSourceRanges:
+    - "200.124.78.234/32"
 
 resources:
   requests: { cpu: "50m", memory: "64Mi", ephemeral-storage: "128Mi" }
