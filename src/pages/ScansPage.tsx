@@ -5,9 +5,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Search } from 'lucide-react';
-import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSites, RECOMMENDED_FILTERS } from '../api/scans.api';
-import type { ScanMode, SiteSearchResult } from '../api/scans.api';
+import { Play, Search, HardDrive } from 'lucide-react';
+import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSitesPreview, getSitesByStorage, RECOMMENDED_FILTERS } from '../api/scans.api';
+import type { ScanMode, SiteSearchResult, SitePreviewExcluded, SitePreviewCounts } from '../api/scans.api';
 import { ApiClientError } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { PageHead, Card, Btn, StatusPill } from '../components/ui';
@@ -59,6 +59,8 @@ export default function ScansPage(): React.ReactElement {
   const { data: scans, loading, error, refetch } = useApi(listScans, []);
   const [query, setQuery] = useState('*');
   const [siteLimit, setSiteLimit] = useState(50);
+  const [byStorageLimit, setByStorageLimit] = useState(25);
+  const [loadingByStorage, setLoadingByStorage] = useState(false);
   const [results, setResults] = useState<SiteSearchResult[]>([]);
   const [selected, setSelected] = useState<SiteSearchResult[]>([]);
   const [page, setPage] = useState(1);
@@ -75,6 +77,9 @@ export default function ScansPage(): React.ReactElement {
   const [toast, setToast] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [filters, setFilters] = useState<ScanFiltersType>(loadStoredFilters);
   const [filterCategories, setFilterCategories] = useState<ScanFilterCategory[]>([]);
+  const [applyFiltersToSearch, setApplyFiltersToSearch] = useState(true);
+  const [previewCounts, setPreviewCounts] = useState<SitePreviewCounts | null>(null);
+  const [excludedPreview, setExcludedPreview] = useState<SitePreviewExcluded[]>([]);
 
   useEffect(() => {
     if (!toast) return;
@@ -113,15 +118,38 @@ export default function ScansPage(): React.ReactElement {
     setSearching(true);
     setSearchError(null);
     try {
-      const sites = await searchSites(query, siteLimit);
-      setResults(sites);
+      const preview = await searchSitesPreview(query, siteLimit, applyFiltersToSearch ? filters : undefined);
+      setResults(preview.items);
+      setPreviewCounts(preview.counts);
+      setExcludedPreview(preview.excluded);
       setPage(1);
     } catch (err) {
       setResults([]);
+      setPreviewCounts(null);
+      setExcludedPreview([]);
       setPage(1);
       setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao buscar sites.');
     } finally {
       setSearching(false);
+    }
+  }
+
+  // #4: traz os sites que mais ocupam espaço no tenant e já os coloca na seleção.
+  async function handleLoadByStorage(): Promise<void> {
+    setLoadingByStorage(true);
+    setSearchError(null);
+    try {
+      const items = await getSitesByStorage(byStorageLimit);
+      setResults(items);
+      setSelected(items);
+      setScope('selected');
+      setPreviewCounts(null);
+      setExcludedPreview([]);
+      setPage(1);
+    } catch (err) {
+      setSearchError(err instanceof ApiClientError ? err.message : 'Erro ao listar sites por tamanho.');
+    } finally {
+      setLoadingByStorage(false);
     }
   }
 
@@ -249,17 +277,75 @@ export default function ScansPage(): React.ReactElement {
           </div>
           <div className="field" style={{ width: 180 }}>
             <label className="field-label" htmlFor="site-limit">Quantidade a listar</label>
-            <input id="site-limit" className="input" type="number" min={1} max={999} value={siteLimit} onChange={(e) => setSiteLimit(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
+            <input id="site-limit" className="input" type="number" min={1} max={50000} value={siteLimit} onChange={(e) => setSiteLimit(Math.max(1, Math.min(50000, Number(e.target.value) || 1)))} />
           </div>
           <Btn icon={Search} onClick={handleLoadSites} disabled={searching}>
             {searching ? 'Carregando...' : 'Carregar sites'}
           </Btn>
         </div>
+        <div className="row" style={{ alignItems: 'flex-end', marginTop: 'var(--gap-sm)', gap: 'var(--gap-sm)', flexWrap: 'wrap' }}>
+          <div className="field" style={{ width: 180 }}>
+            <label className="field-label" htmlFor="by-storage-limit">Maiores sites do tenant</label>
+            <input
+              id="by-storage-limit"
+              className="input"
+              type="number"
+              min={1}
+              max={200}
+              value={byStorageLimit}
+              onChange={(e) => setByStorageLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
+            />
+          </div>
+          <Btn icon={HardDrive} onClick={handleLoadByStorage} disabled={loadingByStorage}>
+            {loadingByStorage ? 'Consultando…' : 'Trazer maiores sites'}
+          </Btn>
+          <span className="small muted" style={{ flex: '1 1 220px' }}>
+            Lista os sites que mais ocupam espaço (relatório de uso do tenant) e já os adiciona à seleção do scan.
+          </span>
+        </div>
+        <label className="check-row" style={{ alignItems: 'center', marginTop: 'var(--gap-sm)' }}>
+          <input
+            type="checkbox"
+            checked={applyFiltersToSearch}
+            onChange={(e) => setApplyFiltersToSearch(e.target.checked)}
+          />
+          <span className="small">
+            Aplicar filtros de categoria à busca (mostra apenas os sites que entrariam no scan e quantos seriam excluídos)
+          </span>
+        </label>
         <div className="small muted" style={{ marginTop: 5, minHeight: 20 }}>
           {results.length > 0
             ? `${results.length} site(s) carregado(s); ${selected.length} selecionado(s)`
             : 'Informe a busca e a quantidade desejada. A listagem não é carregada automaticamente.'}
         </div>
+
+        {previewCounts && (
+          <div className="info-box" style={{ marginTop: 'var(--gap-sm)' }} aria-live="polite">
+            <strong>{previewCounts.total}</strong> site(s) encontrado(s) na busca
+            {typeof previewCounts.kept === 'number' && typeof previewCounts.excluded === 'number' && (
+              <> — <strong>{previewCounts.kept}</strong> incluído(s) no scan, <strong>{previewCounts.excluded}</strong> excluído(s) pelos filtros</>
+            )}
+            {previewCounts.breakdown && Object.keys(previewCounts.breakdown).length > 0 && (
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {Object.entries(previewCounts.breakdown).map(([cat, n]) => `${cat}: ${n}`).join(' · ')}
+              </div>
+            )}
+            {excludedPreview.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary className="small" style={{ cursor: 'pointer' }}>Ver {excludedPreview.length} site(s) excluído(s)</summary>
+                <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 6 }}>
+                  {excludedPreview.map((site) => (
+                    <div key={site.id} className="small" style={{ padding: '0.3rem 0', borderBottom: '1px solid var(--border-soft)' }}>
+                      <strong>{site.displayName || site.webUrl}</strong>
+                      <span className="pill pill-mute" style={{ marginLeft: 6 }}>{site.category}</span>
+                      <small className="mono" style={{ display: 'block', color: 'var(--muted)' }}>{site.webUrl}</small>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
         {searchError && <div role="alert" style={{ color: 'var(--bad)', margin: '0.5rem 0' }}>{searchError}</div>}
 
         {results.length > 0 && (
@@ -274,6 +360,9 @@ export default function ScansPage(): React.ReactElement {
                   <input type="checkbox" checked={selectedIds.has(site.id)} onChange={() => toggleSite(site)} />
                   <span>
                     <strong>{site.displayName || site.webUrl}</strong>
+                    {site.storageHuman && (
+                      <span className="pill pill-mute" style={{ marginLeft: 6 }}>{site.storageHuman}</span>
+                    )}
                     <small className="mono" style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>{site.webUrl}</small>
                   </span>
                 </label>

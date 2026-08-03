@@ -51,6 +51,16 @@ export interface SiteSearchResult {
   id: string;
   displayName: string;
   webUrl: string;
+  storageBytes?: number;
+  storageHuman?: string;
+  fileCount?: number;
+}
+
+/** Sites do tenant ranqueados por espaço ocupado (#4). Resolvidos para id Graph,
+ * prontos para entrar em "sites selecionados". */
+export async function getSitesByStorage(limit = 25): Promise<SiteSearchResult[]> {
+  const r = await get<{ items: SiteSearchResult[] }>('/api/sites/by-storage', { limit });
+  return r.items ?? [];
 }
 
 interface LegacyScan {
@@ -100,6 +110,7 @@ function normalizeStatus(status?: string): Scan['status'] {
       return 'running';
     case 'DONE':
     case 'COMPLETED':
+    case 'DONE_WITH_ERRORS':
       return 'completed';
     case 'ERROR':
     case 'FAILED':
@@ -193,4 +204,49 @@ export async function searchSites(search: string, top = 50): Promise<SiteSearchR
     { search: search.trim() || '*', top },
   );
   return Array.isArray(response) ? response : response.items;
+}
+
+export interface SitePreviewExcluded extends SiteSearchResult {
+  category: string;
+  reason: string;
+}
+
+export interface SitePreviewCounts {
+  total: number;
+  kept?: number;
+  excluded?: number;
+  breakdown?: Record<string, number>;
+}
+
+export interface SitePreviewResult {
+  items: SiteSearchResult[];
+  excluded: SitePreviewExcluded[];
+  counts: SitePreviewCounts;
+  filtered: boolean;
+  note?: string;
+}
+
+/**
+ * Pré-visualiza a busca de sites para validar antes do scan: sem o limite de 999
+ * (pagina no backend) e, quando `filters` é informado, classifica e devolve
+ * incluídos/excluídos + contagens.
+ */
+export async function searchSitesPreview(
+  search: string,
+  max = 5000,
+  filters?: ScanFilters,
+): Promise<SitePreviewResult> {
+  const params: Record<string, string | number> = { search: search.trim() || '*', max };
+  if (filters) params.filters = JSON.stringify(filters);
+  // timeout 0 = sem limitador: enumerar muitos sites (ex.: 10000) pode passar de
+  // 30s legitimamente; a chamada não deve ser interrompida pelo client.
+  const r = await get<Partial<SitePreviewResult> & { items?: SiteSearchResult[] }>('/api/sites', params, undefined, 0);
+  const items = r.items ?? [];
+  return {
+    items,
+    excluded: r.excluded ?? [],
+    counts: r.counts ?? { total: items.length },
+    filtered: !!r.filtered,
+    note: r.note,
+  };
 }

@@ -115,10 +115,12 @@ async function fetchWithTimeout(
   if (externalSignal?.aborted) abortFromExternal();
   else externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
 
-  const timer = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, ms);
+  // ms <= 0 desabilita o limitador (ex.: enumeração de muitos sites que pode
+  // legitimamente passar de 30s). Sem timer, a request só termina por resposta
+  // do servidor ou abort externo.
+  const timer = ms > 0
+    ? window.setTimeout(() => { timedOut = true; controller.abort(); }, ms)
+    : null;
 
   try {
     return await fetch(input, { ...init, signal: controller.signal });
@@ -128,7 +130,7 @@ async function fetchWithTimeout(
     }
     throw err;
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== null) window.clearTimeout(timer);
     externalSignal?.removeEventListener('abort', abortFromExternal);
   }
 }
@@ -145,13 +147,14 @@ export async function get<T>(
   path: string,
   params?: Record<string, string | number | boolean | undefined | null>,
   options?: RequestInit,
+  timeoutMs?: number,
 ): Promise<T> {
   const res = await fetchWithTimeout(buildUrl(path, params), {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> | undefined) },
     credentials: 'include',
     ...options,
-  });
+  }, timeoutMs ?? DEFAULT_TIMEOUT_MS);
   return parseResponse<T>(res);
 }
 

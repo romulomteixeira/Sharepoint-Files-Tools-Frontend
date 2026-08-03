@@ -1,0 +1,97 @@
+name: Deploy to AKS
+
+# Deploy MANUAL do frontend no cluster (helm upgrade --install).
+# Auth: OIDC (app gh-oidc-app-deploy, FIC no branch main).
+# Pré-requisito: backend já instalado (o Service ExternalName "backend" resolve
+# para o gateway dele).
+#
+# Secrets exigidos neste repo:
+#   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID  (OIDC)
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag da imagem (ex.: sha-<commit> ou latest)"
+        required: true
+        default: "latest"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AKS_RG: rg-spmonitor-dev
+  AKS_NAME: aks-spmonitor-dev
+  NAMESPACE: sharepoint-monitor
+  RELEASE: spm-fe
+  # Gateway do backend (release "spm" no mesmo namespace).
+  BACKEND_FQDN: spm-sharepoint-monitor-gateway.sharepoint-monitor.svc.cluster.local
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Cluster ligado? (start se preciso)
+        run: |
+          state=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query "powerState.code" -o tsv)
+          if [ "$state" != "Running" ]; then
+            echo "Cluster está '$state' — ligando para o deploy..."
+            az aks start -g "$AKS_RG" -n "$AKS_NAME"
+          fi
+
+      # API server restrito por IP (rede privada): libera o runner
+      # temporariamente; a allowlist permanente é restaurada no passo 'always'.
+      - name: Liberar IP do runner no API server (temporário)
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "runner: $RUNNER_IP"
+          PERM="${{ vars.API_ALLOWED_RANGES || '200.124.78.234/32' }}"
+          az aks update -g "$AKS_RG" -n "$AKS_NAME" \
+            --api-server-authorized-ip-ranges "$PERM,$RUNNER_IP/32" -o none
+
+      - name: Credenciais do cluster
+        run: az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
+
+      - name: Helm upgrade --install
+        env:
+          # Input via env (não interpolar ${{ }} no script — evita script injection).
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          helm upgrade --install "$RELEASE" deploy/helm/sharepoint-frontend \
+            -n "$NAMESPACE" --create-namespace \
+            --set image.tag="$IMAGE_TAG" \
+            --set backend.gatewayServiceFQDN="$BACKEND_FQDN" \
+            --wait --timeout 5m
+
+      - name: Verificação pós-deploy
+        if: always()
+        run: |
+          kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=sharepoint-frontend -o wide || true
+          kubectl -n "$NAMESPACE" get svc || true
+          echo "── IP público do frontend ──"
+          kubectl -n "$NAMESPACE" get svc "$RELEASE-sharepoint-frontend" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true
+          echo
+          echo "── logs do frontend (diagnóstico) ──"
+          kubectl -n "$NAMESPACE" logs --tail=40 --prefix --previous \
+            -l app.kubernetes.io/name=sharepoint-frontend 2>/dev/null \
+            || kubectl -n "$NAMESPACE" logs --tail=40 --prefix \
+                 -l app.kubernetes.io/name=sharepoint-frontend || true
+          echo "── eventos do pod ──"
+          kubectl -n "$NAMESPACE" describe pod \
+            -l app.kubernetes.io/name=sharepoint-frontend 2>/dev/null | tail -15 || true
+
+      - name: Restaurar allowlist do API server
+        if: always()
+        run: |
+          PERM="${{ vars.API_ALLOWED_RANGES || '200.124.78.234/32' }}"
+          az aks update -g "$AKS_RG" -n "$AKS_NAME" \
+            --api-server-authorized-ip-ranges "$PERM" -o none || true

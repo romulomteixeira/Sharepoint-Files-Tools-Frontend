@@ -7,8 +7,12 @@ O **inventário** é o resultado de um scan concluído: a lista completa de todo
 ## Como acessar o inventário
 
 1. Vá para **Scans** (`/scans`)
-2. Localize um scan com status `completed`
+2. Localize um scan concluído (status `DONE` / `DONE_WITH_ERRORS`)
 3. Clique em **"Inventário"** na coluna Ações
+
+> Um scan em `ENRICHING` (inventário pronto, enriquecimento de versões em curso)
+> já tem inventário navegável, mas as métricas de **versões** ainda podem estar
+> sendo preenchidas. Ele só é considerado concluído após as versões terminarem.
 
 Ou, a partir do **Dashboard**, clique em **"Ver Inventário"** — ele aponta automaticamente para o scan mais recente concluído.
 
@@ -28,6 +32,10 @@ Quatro métricas agregadas do scan:
 | Drives | Total de drives (bibliotecas de documentos) |
 | Arquivos | Total de arquivos indexados |
 | Total | Volume total em bytes (formatado automaticamente) |
+
+Os cards refletem o **escopo selecionado**: ao escolher um scan mostram os
+totais do scan inteiro; ao **selecionar um site** no filtro, recarregam para os
+totais **daquele site** (via `getInventorySummary(scanId, siteId)`).
 
 ### Tabela de arquivos
 
@@ -62,11 +70,17 @@ Página 2: arquivos 1–200 (acumulado)
 
 | Método | Endpoint | Parâmetros |
 |---|---|---|
-| `GET` | `/api/inventory/:scanId/summary` | — |
+| `GET` | `/api/inventory/:scanId/summary` | `siteId` (opcional — totais por site) |
 | `GET` | `/api/inventory/:scanId/files` | `cursor`, `pageSize`, `siteId`, `driveId`, `extension`, `sort` |
-| `GET` | `/api/inventory/:scanId/sites` | `cursor`, `pageSize`, `sort` |
+| `GET` | `/api/inventory/:scanId/sites` | `cursor`, `pageSize`, `sort` (`total_bytes` = arquivo+versões) |
 | `GET` | `/api/inventory/:scanId/drives` | `cursor`, `pageSize`, `siteId` |
+| `GET` | `/api/inventory/:scanId/extensions` | `limit` — extensões **reais** do scan (alimenta o filtro) |
 | `GET` | `/api/inventory/:scanId/top-files` | `limit` |
+
+> **Ordenação maior/menor** considera o **espaço total** (arquivo + versões),
+> não só o tamanho do arquivo atual. O **filtro de extensões** é populado pelo
+> endpoint `/extensions` (extensões efetivamente presentes no scan), não por uma
+> lista fixa.
 
 ### Exemplo de resposta — `GET /api/inventory/:scanId/summary`
 
@@ -112,6 +126,6 @@ Página 2: arquivos 1–200 (acumulado)
 ## Dicas
 
 - Clique no nome de um arquivo para abri-lo diretamente no SharePoint Online (abre em nova aba).
-- Para filtrar por site ou drive específico, use os parâmetros de API diretamente ou aguarde a implementação de filtros na UI.
+- Filtre por site, drive e extensão direto na UI; selecionar um site também atualiza os cards de resumo do topo.
 - Para exportar o inventário em CSV ou JSONL, consulte [Fluxo: Relatórios](./reports.md).
 - O inventário de um scan não muda após a conclusão — é uma fotografia do estado do tenant naquele momento.

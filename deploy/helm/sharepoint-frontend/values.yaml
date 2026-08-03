@@ -1,0 +1,60 @@
+## SharePoint Monitor — Frontend (Nginx SPA).
+## O nginx da imagem faz proxy_pass http://backend:8787 para /api, /health, etc.
+## Este chart cria um Service ExternalName chamado "backend" apontando para o
+## gateway do backend, então a imagem funciona SEM rebuild.
+
+image:
+  repository: romulomteixeira/sharepoint-monitor-frontend
+  # Defina no deploy: --set image.tag=<tag>
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicas: 1
+containerPort: 80
+
+## Onde está o gateway do backend (chart sharepoint-monitor). O nginx resolve o
+## host "backend" via ExternalName → este FQDN. Ajuste o release/namespace se
+## diferentes do padrão (release "spm", namespace "sharepoint-monitor").
+backend:
+  gatewayServiceFQDN: "spm-sharepoint-monitor-gateway.sharepoint-monitor.svc.cluster.local"
+  port: 8787
+
+service:
+  ## LoadBalancer → IP público (ÚNICO ponto de entrada da stack; o gateway do
+  ## backend é ClusterIP e só é alcançado via proxy interno do nginx).
+  type: LoadBalancer
+  port: 80
+  ## Allowlist de rede no Azure LB: pacotes de IPs fora desta lista nem chegam
+  ## ao nginx. Vazio = aberto. Decisão do projeto: restrito ao IP do admin.
+  loadBalancerSourceRanges:
+    - "200.124.78.234/32"
+
+resources:
+  requests: { cpu: "50m", memory: "64Mi", ephemeral-storage: "128Mi" }
+  limits: { cpu: "200m", memory: "128Mi", ephemeral-storage: "512Mi" }
+
+podSecurityContext: {}
+# A imagem é alpine + pacote nginx: o master roda como ROOT (por design do
+# pacote) e escreve em /var/lib/nginx (dono: usuário nginx). Restringir
+# capabilities (drop ALL) quebra o boot mesmo adicionando SETUID/SETGID/CHOWN —
+# root sem DAC_OVERRIDE falha nos mkdir/open desses diretórios. Usamos as caps
+# DEFAULT do runtime (mesmo comportamento do docker-compose, onde a imagem é
+# validada), sem escalada de privilégio. Hardening futuro: rodar o nginx
+# rootless via mudanças no Dockerfile (user nginx + paths graváveis).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+
+probes:
+  path: /
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: sharepoint-monitor.local
+  path: /
+  pathType: Prefix
+  tls: []

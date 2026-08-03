@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   getLicenseCapacity,
+  refreshLicenseCapacity,
   type LicenseCapacityReport,
   type SkuEntry,
 } from '../api/licenses.api';
@@ -141,6 +142,27 @@ export default function LicensesPage(): React.ReactElement {
   const [scans,   setScans]   = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  function fmtDateTime(iso?: string): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR');
+  }
+
+  const handleRefreshLicenses = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const fresh = await refreshLicenseCapacity();
+      setReport(fresh);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Falha ao atualizar licenças.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -160,6 +182,25 @@ export default function LicensesPage(): React.ReactElement {
   }, []);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // Ações do cabeçalho (sempre visíveis, inclusive quando o relatório vem ok:false
+  // — ex.: cache de licenças ainda não populado — para o operador poder atualizar).
+  const headerActions = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <span style={ls.lastCheck} aria-live="polite">
+        Última checagem: <strong>{fmtDateTime(report?.fetchedAt)}</strong>
+      </span>
+      <button
+        style={{ ...ls.refreshBtn, ...(refreshing ? { opacity: 0.6, cursor: 'wait' } : {}) }}
+        onClick={() => void handleRefreshLicenses()}
+        disabled={refreshing}
+        title="Consulta o Microsoft Graph e atualiza o cache de licenças"
+      >
+        {refreshing ? 'Atualizando…' : '⟳ Atualizar licenças'}
+      </button>
+      <button style={ls.refreshBtn} onClick={() => void fetchData()}>↺ Recarregar</button>
+    </div>
+  );
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -183,8 +224,13 @@ export default function LicensesPage(): React.ReactElement {
       <div style={ls.wrap}>
         <div style={ls.pageHeader}>
           <h1 style={ls.h1}>Licenças &amp; Espaço</h1>
-          <button style={ls.refreshBtn} onClick={() => void fetchData()}>↺ Recarregar</button>
+          {headerActions}
         </div>
+        {refreshError && (
+          <div style={{ ...ls.alertBox, background: '#fff5f5', borderColor: C.bad, marginBottom: 16 }}>
+            <div style={{ ...ls.alertMsg, color: C.bad }}>{refreshError}</div>
+          </div>
+        )}
         <div style={{ ...ls.alertBox, background: '#fff5f5', borderColor: C.bad }}>
           <div style={{ ...ls.alertTitle, color: C.bad }}>⚠ Erro ao carregar</div>
           <div style={ls.alertMsg}>{error}</div>
@@ -199,11 +245,19 @@ export default function LicensesPage(): React.ReactElement {
       <div style={ls.wrap}>
         <div style={ls.pageHeader}>
           <h1 style={ls.h1}>Licenças &amp; Espaço</h1>
-          <button style={ls.refreshBtn} onClick={() => void fetchData()}>↺ Recarregar</button>
+          {headerActions}
         </div>
+        {refreshError && (
+          <div style={{ ...ls.alertBox, background: '#fff5f5', borderColor: C.bad, marginBottom: 16 }}>
+            <div style={{ ...ls.alertMsg, color: C.bad }}>{refreshError}</div>
+          </div>
+        )}
         <div style={{ ...ls.alertBox, background: '#fffbeb', borderColor: C.warn }}>
-          <div style={{ ...ls.alertTitle, color: C.warn }}>⚠ Permissões insuficientes</div>
+          <div style={{ ...ls.alertTitle, color: C.warn }}>⚠ Dados de licenças indisponíveis</div>
           <div style={ls.alertMsg}>{report.error ?? 'Sem dados de licenças disponíveis.'}</div>
+          <div style={{ ...ls.alertMsg, marginTop: 6 }}>
+            Use <strong>Atualizar licenças</strong> acima para consultar o Microsoft Graph e popular o cache.
+          </div>
           {report.hint && (
             <pre style={ls.hintPre}>{report.hint}</pre>
           )}
@@ -233,8 +287,13 @@ export default function LicensesPage(): React.ReactElement {
           <h1 style={ls.h1}>Licenças &amp; Espaço</h1>
           <p style={ls.pageSub}>Capacidade alocada, consumo actual e projecção de crescimento</p>
         </div>
-        <button style={ls.refreshBtn} onClick={() => void fetchData()}>↺ Recarregar</button>
+        {headerActions}
       </div>
+      {refreshError && (
+        <div style={{ ...ls.alertBox, background: '#fff5f5', borderColor: C.bad, marginBottom: 16 }}>
+          <div style={{ ...ls.alertMsg, color: C.bad }}>{refreshError}</div>
+        </div>
+      )}
 
       {/* ── Alert de uso elevado ─────────────────────────────────────────── */}
       {pct >= 80 && (
@@ -391,6 +450,7 @@ export default function LicensesPage(): React.ReactElement {
                   <th style={ls.thR}>Activos</th>
                   <th style={ls.thR}>Suspensos</th>
                   <th style={ls.thR}>Aviso</th>
+                  <th style={ls.thR}>Total in Tennant</th>
                   <th style={ls.thR}>Contribuição (GB)</th>
                   <th style={ls.th}>Tipo</th>
                 </tr>
@@ -405,6 +465,9 @@ export default function LicensesPage(): React.ReactElement {
                     <td style={ls.tdR}>{sku.consumedUnits.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidSuspended.toLocaleString('pt-PT')}</td>
                     <td style={ls.tdR}>{sku.prepaidWarning.toLocaleString('pt-PT')}</td>
+                    <td style={{ ...ls.tdR, fontWeight: 700 }}>
+                      {(sku.prepaidTotal ?? (sku.prepaidEnabled + sku.prepaidSuspended + sku.prepaidWarning)).toLocaleString('pt-PT')}
+                    </td>
                     <td style={{
                       ...ls.tdR, fontWeight: 700,
                       color: sku.capacityContributionGb > 0 ? C.accent : C.muted,
@@ -478,6 +541,7 @@ const ls: Record<string, React.CSSProperties> = {
     borderRadius: 4, padding: '6px 14px', fontSize: 13, cursor: 'pointer',
     color: C.accent, fontWeight: 600, fontFamily: 'inherit',
   },
+  lastCheck: { fontSize: 12, color: C.muted, whiteSpace: 'nowrap' },
 
   centered: {
     display: 'flex', flexDirection: 'column',

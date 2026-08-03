@@ -31,6 +31,10 @@ import {
   type SchedulerState,
   type WorkersHealth,
 } from '../api/settings.api';
+import { listScans } from '../api/scans.api';
+import { getInventorySites } from '../api/inventory.api';
+import { enrichVersions, getVersionedFiles, checkScanChanges, type VersionedFilesResponse } from '../api/versions.api';
+import type { Scan, SiteRollup } from '../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -133,6 +137,20 @@ function validateVersionWorkerDraft(config: AppConfig): void {
   }
 }
 
+function validateScanWorkerDraft(config: AppConfig): void {
+  const count = Math.max(1, Math.min(16, Math.trunc(Number(config.scanWorkers) || 1)));
+  if (count <= 1) return;
+  const requiredApps = count - 1;
+  const apps = config.graphExtraApps ?? [];
+
+  for (let index = 0; index < requiredApps; index += 1) {
+    const app = apps[index];
+    if (!app?.clientId?.trim() || (!app.clientSecret?.trim() && !app.hasClientSecret)) {
+      throw new Error(`Scan Worker ${index + 2}: preencha Client ID e Client Secret no pool de App Registrations.`);
+    }
+  }
+}
+
 function versionModeLabel(mode: string): string {
   if (mode === 'none') return 'Não calcular automaticamente';
   if (mode === 'all') return 'Todos (muito lento)';
@@ -214,6 +232,19 @@ export default function SettingsPage(): React.ReactElement {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleSaved, setScheduleSaved] = useState(false);
 
+  // ── Enriquecimento de versões (Configurações > Enriquecimento de Versões) ──
+  const [enrichScans, setEnrichScans] = useState<Scan[]>([]);
+  const [enrichScanId, setEnrichScanId] = useState<string>('');
+  const [enrichSites, setEnrichSites] = useState<SiteRollup[]>([]);
+  const [enrichSelectedSites, setEnrichSelectedSites] = useState<Set<string>>(new Set());
+  const [enrichLoadingSites, setEnrichLoadingSites] = useState(false);
+  const [enrichBusy, setEnrichBusy] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Filtro "versões acima de X"
+  const [minVersions, setMinVersions] = useState(1);
+  const [versionedResult, setVersionedResult] = useState<VersionedFilesResponse | null>(null);
+  const [versionedBusy, setVersionedBusy] = useState(false);
+
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Mount: sessão + config ────────────────────────────────────────────────
@@ -240,6 +271,7 @@ export default function SettingsPage(): React.ReactElement {
     setSaved(false);
     try {
       validateVersionWorkerDraft(draft);
+      validateScanWorkerDraft(draft);
       await saveConfig(draft);
       const savedConfig = redactSecrets(draft);
       setConfig(savedConfig);
@@ -301,6 +333,18 @@ export default function SettingsPage(): React.ReactElement {
     });
   };
 
+  const scanWorkerCount = Math.max(1, Math.min(16, Math.trunc(num('scanWorkers') || 1)));
+  const scanRequiredExtraApps = Math.max(0, scanWorkerCount - 1);
+
+  const handleScanWorkerCount = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const count = Math.max(1, Math.min(16, Math.trunc(Number(e.target.value) || 1)));
+    setDraft(current => {
+      const apps = [...(current.graphExtraApps ?? config?.graphExtraApps ?? [])];
+      while (apps.length < Math.max(0, count - 1)) apps.push({ clientId: '', clientSecret: '' });
+      return { ...current, scanWorkers: count, graphExtraApps: apps };
+    });
+  };
+
   const handleDiagnoseAuth = async () => {
     setDiagnosingAuth(true);
     setError(null);
@@ -322,6 +366,82 @@ export default function SettingsPage(): React.ReactElement {
       setError(String((e as Error)?.message ?? e));
     } finally {
       setCheckingWorkers(false);
+    }
+  };
+
+  // ── Enriquecimento de versões ──────────────────────────────────────────────
+  useEffect(() => {
+    listScans().then(setEnrichScans).catch(() => setEnrichScans([]));
+  }, []);
+
+  const handleSelectEnrichScan = async (scanId: string) => {
+    setEnrichScanId(scanId);
+    setEnrichSelectedSites(new Set());
+    setEnrichSites([]);
+    setEnrichMsg(null);
+    if (!scanId) return;
+    setEnrichLoadingSites(true);
+    try {
+      const res = await getInventorySites(scanId, { pageSize: 500 });
+      setEnrichSites(res.items ?? []);
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao carregar sites: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichLoadingSites(false);
+    }
+  };
+
+  const toggleEnrichSite = (siteId: string) => {
+    setEnrichSelectedSites((prev) => {
+      const next = new Set(prev);
+      if (next.has(siteId)) next.delete(siteId); else next.add(siteId);
+      return next;
+    });
+  };
+
+  const runEnrich = async (siteIds?: string[]) => {
+    if (!enrichScanId) return;
+    setEnrichBusy(true);
+    setEnrichMsg(null);
+    try {
+      const r = await enrichVersions({ scanId: enrichScanId, siteIds });
+      const escopo = siteIds && siteIds.length ? `${siteIds.length} site(s)` : 'todos os sites (FULL)';
+      setEnrichMsg({ ok: true, text: `Enriquecimento enfileirado (${escopo}): ${r.total.toLocaleString('pt-BR')} arquivo(s). Job ${r.jobId}. Se houver scan em execução, aguarda na fila.` });
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao enfileirar: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichBusy(false);
+    }
+  };
+
+  const runVersionedFilter = async () => {
+    if (!enrichScanId) return;
+    setVersionedBusy(true);
+    setVersionedResult(null);
+    try {
+      const x = Math.max(1, Math.min(102, Math.trunc(minVersions || 1)));
+      setVersionedResult(await getVersionedFiles(enrichScanId, { minVersions: x, page: 1, pageSize: 50 }));
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao filtrar versões: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setVersionedBusy(false);
+    }
+  };
+
+  const fmtGB = (b: number) => `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB`;
+
+  const runDeltaCheck = async (siteIds?: string[]) => {
+    if (!enrichScanId) return;
+    setEnrichBusy(true);
+    setEnrichMsg(null);
+    try {
+      const r = await checkScanChanges(enrichScanId, siteIds);
+      const escopo = siteIds && siteIds.length ? `${siteIds.length} site(s)` : 'todos os sites (FULL)';
+      setEnrichMsg({ ok: true, text: `Verificação de alterações enfileirada (${escopo}). Job ${r.jobId}. Vai detectar novos arquivos/sites, modificados e deletados e re-enriquecer o que mudou. Aguarda na fila se houver scan em execução.` });
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: `Falha ao enfileirar verificação: ${String((e as Error)?.message ?? e)}` });
+    } finally {
+      setEnrichBusy(false);
     }
   };
 
@@ -1019,6 +1139,247 @@ export default function SettingsPage(): React.ReactElement {
               {str('versionsAuto') === 'none' && (
                 <div style={ss.infoInline}>
                   O scan não iniciará enriquecimento automático de versões. O cálculo ainda poderá ser executado manualmente.
+                </div>
+              )}
+            </div>
+          </Section>
+
+          {/* ── Enriquecimento de Versões ─────────────────────────────────── */}
+          <Section title="Enriquecimento de Versões" subtitle="Selecione um scan e enriqueça as versões dos arquivos — completo (FULL) ou por site (parcial)" defaultOpen={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.infoInline}>
+                Busca no MS-Graph a contagem e o tamanho das versões dos arquivos do scan. Entra na <strong>fila sequencial</strong>: se houver um scan em execução, aguarda para não estourar o throttling do Graph. Só arquivos ainda sem versão são processados (re-disparo não duplica).
+              </div>
+              <div style={ss.grid3}>
+                <Field label="Scan" hint="Scan de referência">
+                  <select
+                    aria-label="Selecionar scan para enriquecimento"
+                    style={ss.input}
+                    value={enrichScanId}
+                    onChange={(e) => handleSelectEnrichScan(e.target.value)}
+                    disabled={!isAdmin || enrichBusy}
+                  >
+                    <option value="">— selecione —</option>
+                    {enrichScans.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.id.slice(0, 8)} — {new Date(s.createdAt).toLocaleString('pt-BR')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              {enrichScanId && (
+                <>
+                  <div style={ss.inlineRow}>
+                    <button type="button" style={ss.btnPrimary} disabled={!isAdmin || enrichBusy} onClick={() => runEnrich()}>
+                      {enrichBusy ? 'Enfileirando…' : 'Enriquecer TUDO (FULL)'}
+                    </button>
+                    <button
+                      type="button"
+                      style={ss.btnSecondary}
+                      disabled={!isAdmin || enrichBusy || enrichSelectedSites.size === 0}
+                      onClick={() => runEnrich([...enrichSelectedSites])}
+                    >
+                      Enriquecer sites selecionados ({enrichSelectedSites.size})
+                    </button>
+                  </div>
+
+                  <div style={ss.inlineRow}>
+                    <button type="button" style={ss.btnSecondary} disabled={!isAdmin || enrichBusy} onClick={() => runDeltaCheck()}>
+                      Verificar alterações no MS-Graph (FULL)
+                    </button>
+                    <button
+                      type="button"
+                      style={ss.btnSecondary}
+                      disabled={!isAdmin || enrichBusy || enrichSelectedSites.size === 0}
+                      onClick={() => runDeltaCheck([...enrichSelectedSites])}
+                    >
+                      Verificar alterações nos sites selecionados ({enrichSelectedSites.size})
+                    </button>
+                  </div>
+                  <div style={ss.infoInline}>
+                    "Verificar alterações" consulta o MS-Graph e atualiza o scan: arquivos novos, modificados (novas versões) e deletados, além de bibliotecas/sites novos (no modo FULL). Re-enriquece automaticamente só o que mudou. Entra na fila — nunca roda junto com um scan.
+                  </div>
+
+                  {enrichLoadingSites && <div style={ss.infoInline}>Carregando sites…</div>}
+
+                  {!enrichLoadingSites && enrichSites.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+                      {enrichSites.map((site) => (
+                        <label key={site.siteId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.text }}>
+                          <input
+                            type="checkbox"
+                            checked={enrichSelectedSites.has(site.siteId)}
+                            onChange={() => toggleEnrichSite(site.siteId)}
+                            disabled={!isAdmin || enrichBusy}
+                          />
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {site.siteName || site.siteId}
+                          </span>
+                          <span style={{ color: C.muted, fontSize: 12 }}>{site.totalFiles.toLocaleString('pt-BR')} arq.</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {enrichMsg && (
+                    <div style={enrichMsg.ok ? ss.validationOk : ss.diagnosticError}>{enrichMsg.text}</div>
+                  )}
+
+                  {/* Filtro: arquivos acima de X versões */}
+                  <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={ss.infoInline}>
+                      Filtra os arquivos deste scan com <strong>mais de X versões</strong> (1–102) no SharePoint, usando os dados já enriquecidos.
+                    </div>
+                    <div style={{ ...ss.inlineRow, alignItems: 'flex-end' }}>
+                      <Field label="Acima de X versões" hint="1 a 102">
+                        <input
+                          aria-label="Número mínimo de versões"
+                          style={{ ...ss.input, maxWidth: 120 }}
+                          type="number" min={1} max={102}
+                          value={minVersions}
+                          onChange={(e) => setMinVersions(Math.max(1, Math.min(102, Math.trunc(Number(e.target.value) || 1))))}
+                          disabled={versionedBusy}
+                        />
+                      </Field>
+                      <button type="button" style={ss.btnSecondary} disabled={versionedBusy} onClick={runVersionedFilter}>
+                        {versionedBusy ? 'Filtrando…' : 'Filtrar'}
+                      </button>
+                    </div>
+
+                    {versionedResult && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={ss.validationOk}>
+                          {versionedResult.total.toLocaleString('pt-BR')} arquivo(s) com mais de {versionedResult.minVersions} versão(ões) • {fmtGB(versionedResult.totalVersionsBytes)} em versões
+                          {versionedResult.total > versionedResult.items.length ? ` (exibindo os ${versionedResult.items.length} primeiros)` : ''}
+                        </div>
+                        {versionedResult.items.length > 0 && (
+                          <div style={{ maxHeight: 340, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ color: C.muted, textAlign: 'left' }}>
+                                  <th style={{ padding: '6px 8px' }}>Arquivo</th>
+                                  <th style={{ padding: '6px 8px' }}>Site</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Versões</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Espaço versões</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {versionedResult.items.map((f, i) => (
+                                  <tr key={`${f.siteId}-${f.fullPath}-${i}`} style={{ borderTop: `1px solid ${C.border}`, color: C.text }}>
+                                    <td style={{ padding: '6px 8px', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.fullPath}>{f.fullPath}</td>
+                                    <td style={{ padding: '6px 8px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.siteName}>{f.siteName}</td>
+                                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.versionCount.toLocaleString('pt-BR')}</td>
+                                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtGB(f.versionsBytes)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </Section>
+
+          {/* ── Workers de Scan ──────────────────────────────────────────── */}
+          <Section title="Workers de Scan" subtitle="Processos paralelos que aceleram a varredura de sites/drives (1 por App Registration do pool)" defaultOpen={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={ss.infoInline}>
+                Mais workers = mais paralelismo na varredura. Cada worker usa uma App Registration distinta do <strong>pool compartilhado</strong> (o mesmo dos Version Workers): o Worker 1 usa a App principal e cada worker adicional usa uma app extra abaixo.
+                O ganho é limitado pelo throttling do Microsoft Graph (por tenant/recurso) — distribuir entre apps ajuda só até certo ponto.
+              </div>
+              <div style={ss.grid3}>
+                <Field label="Scan Workers" hint="Quantidade total de processos (1–16)">
+                  <input
+                    aria-label="Número de Scan Workers"
+                    style={ss.input}
+                    type="number" min={1} max={16}
+                    value={scanWorkerCount}
+                    onChange={handleScanWorkerCount}
+                    readOnly={!editMode}
+                  />
+                </Field>
+              </div>
+
+              {scanRequiredExtraApps === 0 && (
+                <div style={ss.validationOk}>Apenas o Worker 1 será usado com a App Registration principal.</div>
+              )}
+
+              {scanRequiredExtraApps > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={ss.validationBox}>
+                    {scanWorkerCount} Scan Workers exigem {scanRequiredExtraApps} app(s) extra(s) no pool, uma para cada Worker 2 até Worker {scanWorkerCount}. As credenciais são compartilhadas com os Version Workers (Worker N = mesma App Registration).
+                  </div>
+                  {Array.from({ length: scanRequiredExtraApps }, (_, index) => {
+                    const app = (draft.graphExtraApps ?? config?.graphExtraApps ?? [])[index] ?? { clientId: '' };
+                    const workerNumber = index + 2;
+                    return (
+                      <div key={workerNumber} style={ss.workerCard}>
+                        <div style={ss.workerHead}>
+                          <strong>Worker {workerNumber}</strong>
+                          <span style={ss.workerPill}>GRAPH_EXTRA_APPS[{index}]</span>
+                        </div>
+                        <div style={ss.grid3}>
+                          <Field label="Label" hint="Nome amigável da Enterprise App">
+                            <input
+                              aria-label={`Label do Scan Worker ${workerNumber}`}
+                              style={ss.input}
+                              value={app.label ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { label: e.target.value })}
+                              readOnly={!editMode}
+                              placeholder={`app-worker-${workerNumber}`}
+                            />
+                          </Field>
+                          <Field label="Client ID">
+                            <input
+                              aria-label={`Client ID do Scan Worker ${workerNumber}`}
+                              style={ss.input}
+                              value={app.clientId ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { clientId: e.target.value })}
+                              readOnly={!editMode}
+                            />
+                          </Field>
+                          <Field
+                            label="Client Secret"
+                            hint={app.hasClientSecret ? 'Secret já salvo. Deixe vazio para manter.' : 'Cole o Secret VALUE.'}
+                          >
+                            <input
+                              aria-label={`Client Secret do Scan Worker ${workerNumber}`}
+                              style={ss.input}
+                              type="password"
+                              value={app.clientSecret ?? ''}
+                              onChange={e => updateGraphExtraApp(index, { clientSecret: e.target.value })}
+                              readOnly={!editMode}
+                              placeholder={app.hasClientSecret ? '••••••••' : 'Secret VALUE'}
+                              autoComplete="new-password"
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={ss.inlineRow}>
+                <button type="button" style={ss.btnSecondary} onClick={handleWorkersHealth} disabled={checkingWorkers}>
+                  {checkingWorkers ? 'Consultando…' : 'Verificar Scan Workers'}
+                </button>
+              </div>
+
+              {workersHealth?.scanWorker && (
+                <div style={!workersHealth.scanWorker.configError ? ss.validationOk : ss.diagnosticError}>
+                  <strong>
+                    Scan Workers: {workersHealth.scanWorker.heartbeatCount}/{workersHealth.scanWorker.expected} heartbeat(s)
+                  </strong>
+                  <div>Processos locais: {workersHealth.scanWorker.localProcessCount}</div>
+                  <div>Apps no pool: {workersHealth.scanWorker.extraAppsConfigured}</div>
+                  {workersHealth.scanWorker.configError && <div>{workersHealth.scanWorker.configError}</div>}
                 </div>
               )}
             </div>
