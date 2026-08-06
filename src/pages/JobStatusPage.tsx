@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { Check } from 'lucide-react';
 import { useJobStream } from '../hooks/useJobStream';
 import { PageHead, Card, StatusPill } from '../components/ui';

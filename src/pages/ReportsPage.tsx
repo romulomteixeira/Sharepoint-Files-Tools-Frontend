@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useApi } from '../hooks/useApi';
 import { listScans } from '../api/scans.api';
 import { getInventorySummary, getInventorySites, getInventoryDrives } from '../api/inventory.api';

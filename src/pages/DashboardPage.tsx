@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { RefreshCw, X, ArrowRight, Plus, Globe, Database, BarChart3, TrendingUp, CalendarClock } from 'lucide-react';
 import { listScans, createScan, getScanStatus, cancelScan } from '../api/scans.api';
 import { getInventorySummary, getTopFiles, getInventorySites } from '../api/inventory.api';

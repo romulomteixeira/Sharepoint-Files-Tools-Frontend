@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Play, Search, HardDrive } from 'lucide-react';
 import { cancelScan, createScan, getScanFilterCatalog, listScans, searchSitesPreview, getSitesByStorage, RECOMMENDED_FILTERS } from '../api/scans.api';
 import type { ScanMode, SiteSearchResult, SitePreviewExcluded, SitePreviewCounts } from '../api/scans.api';

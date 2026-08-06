@@ -23,7 +23,7 @@
  */
 
 import React from 'react';
-import { Navigate, Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout        from './components/Layout';
 import LoginPage     from './pages/LoginPage';

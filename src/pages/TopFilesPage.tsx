@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { getLatestTopFiles, getTopFiles } from '../api/inventory.api';
 import type { TopFilesMetric } from '../api/inventory.api';
 import { listScans } from '../api/scans.api';

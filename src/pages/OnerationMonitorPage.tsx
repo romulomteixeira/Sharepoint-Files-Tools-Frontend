@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { getTopCost } from '../api/analytics.api';
 import type { AnalyticsDateField, AnalyticsWindow, TopCostItem } from '../api/analytics.api';
 import { listScans } from '../api/scans.api';

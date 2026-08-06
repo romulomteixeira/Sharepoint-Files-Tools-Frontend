@@ -4,7 +4,7 @@
   "private": true,
   "description": "Frontend React/TypeScript do SharePoint Monitor",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.22.0"
   },
   "scripts": {
     "dev": "vite",
@@ -22,7 +22,7 @@
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^8.3.0"
+    "react-router": "^8.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
