@@ -111,9 +111,16 @@ O `docker-compose.yml` do backend baixa automaticamente a imagem publicada do fr
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `VITE_API_BASE_URL` | `""` (vazio) | URL base da API. Vazio = proxy relativo via Nginx. Só necessário fora do Docker. |
+| `VITE_API_BASE_URL` | `""` (vazio) | URL base pública da API. Vazio = proxy relativo/same-origin. Para frontend estático chamando o APIM diretamente, inclua também o prefixo/versionamento publicado pelo APIM. |
 
 Em desenvolvimento, o proxy do Vite cuida do roteamento para o backend. Em produção Docker, o Nginx cuida disso — `VITE_API_BASE_URL` deve permanecer vazio.
+
+No deploy estático sem proxy same-origin, configure a Repository Variable
+`VITE_API_BASE_URL`. Exemplo:
+
+```text
+https://api-dev.brmalls.com.br/allos-api-sharepoint-monitor/1.0.0
+```
 
 ---
 

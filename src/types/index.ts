@@ -155,6 +155,9 @@ export interface JobStatusDetail {
     running: number;
     completed: number;
     failed: number;
+    itemsPerSecond?: number;
+    etaSeconds?: number;
+    cached?: number;
   };
   startedAt?: string;
   finishedAt?: string;

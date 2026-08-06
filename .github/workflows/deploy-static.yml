@@ -40,12 +40,12 @@ jobs:
       - name: Instalar dependências (lockfile)
         run: npm ci --ignore-scripts
 
-      # VITE_API_BASE_URL VAZIO de propósito: atrás do Front Door o site e a
-      # API compartilham a mesma origem (rota /api/* → gateway do AKS), igual
-      # ao proxy do nginx no modo AKS. Mesmo artefato nos dois modos.
+      # Vazio mantém o modo same-origin (Front Door/nginx). Quando o frontend
+      # estático chama o APIM diretamente, configure a Repository Variable
+      # VITE_API_BASE_URL com a base pública completa da API.
       - name: Build (Vite)
         env:
-          VITE_API_BASE_URL: ""
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || '' }}
         run: npm run build
 
       # Carimbo de versão para auditoria do que está servido (GET /version.json).

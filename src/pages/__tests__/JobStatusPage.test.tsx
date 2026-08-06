@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import JobStatusPage from "../JobStatusPage";
@@ -57,5 +57,17 @@ describe("JobStatusPage", () => {
     expect(
       screen.queryByRole("link", { name: /ver inventário/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("permite selecionar o intervalo de atualização do acompanhamento", () => {
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-123"]}>
+        <Routes><Route path="/jobs/:jobId" element={<JobStatusPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    const interval = screen.getByLabelText('Intervalo de atualização');
+    expect(interval).toHaveValue('5');
+    fireEvent.change(interval, { target: { value: '20' } });
+    expect(interval).toHaveValue('20');
   });
 });

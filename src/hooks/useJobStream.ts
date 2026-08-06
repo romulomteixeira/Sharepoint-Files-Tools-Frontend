@@ -29,6 +29,11 @@ function numberValue(...values: unknown[]): number {
   return value == null ? 0 : Number(value);
 }
 
+function optionalNumberValue(...values: unknown[]): number | undefined {
+  const value = values.find((item) => item !== null && item !== undefined && item !== '' && Number.isFinite(Number(item)));
+  return value === undefined ? undefined : Number(value);
+}
+
 function normalizeStatus(value: unknown): JobStatus {
   switch (String(value || '').toUpperCase()) {
     case 'DONE':
@@ -68,6 +73,9 @@ export function normalizeJobStatus(
   const failed = numberValue(nested.failed, nested.fail);
   const running = numberValue(nested.running, normalizeStatus(nested.status) === 'running' ? 1 : 0);
   const pending = numberValue(nested.pending, Math.max(0, total - completed - failed - running));
+  const itemsPerSecond = optionalNumberValue(nested.itemsPerSecond, nested.avgItemsS, nested.avg_items_s, nested.rate, nested.filesPerSecond);
+  const etaSeconds = optionalNumberValue(nested.etaSeconds, nested.eta_seconds, nested.eta);
+  const cached = optionalNumberValue(nested.cached);
   const status = normalizeStatus(nested.status ?? root.status);
   const rawType = root.type === 'progress' ? undefined : root.type;
 
@@ -80,7 +88,12 @@ export function normalizeJobStatus(
         : previous?.scanId,
     type: String(rawType ?? nested.kind ?? previous?.type ?? 'retention_execute') as JobType,
     status,
-    progress: { total, pending, running, completed, failed },
+    progress: {
+      total, pending, running, completed, failed,
+      ...(itemsPerSecond !== undefined ? { itemsPerSecond } : {}),
+      ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+      ...(cached !== undefined ? { cached } : {}),
+    },
     startedAt: typeof nested.startedAt === 'string' ? nested.startedAt : previous?.startedAt,
     finishedAt: typeof nested.finishedAt === 'string' ? nested.finishedAt : previous?.finishedAt,
     lastError: typeof nested.error === 'string'
@@ -121,9 +134,10 @@ export function useJobStream(
     let polling = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    const es = openEventStream(`/api/jobs/${jobId}/stream`);
+    const configuredPollIntervalMs = callbacksRef.current.pollIntervalMs ?? 5_000;
+    const es = openEventStream(`/api/jobs/${jobId}/stream?intervalMs=${configuredPollIntervalMs}`);
     const fallbackDelayMs = callbacksRef.current.fallbackDelayMs ?? 5_000;
-    const pollIntervalMs = callbacksRef.current.pollIntervalMs ?? 5_000;
+    const pollIntervalMs = configuredPollIntervalMs;
     const getStatus = callbacksRef.current.getStatus ?? defaultGetStatus;
 
     statusRef.current = null;
@@ -204,7 +218,7 @@ export function useJobStream(
       if (pollTimer) clearTimeout(pollTimer);
       if (fallbackTimer) clearTimeout(fallbackTimer);
     };
-  }, [jobId]);
+  }, [jobId, options.pollIntervalMs]);
 
   return { status, error, done, transport };
 }

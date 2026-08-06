@@ -32,6 +32,7 @@ import {
   type WorkersHealth,
 } from '../api/settings.api';
 import { listScans } from '../api/scans.api';
+import { getOAuthRedirectUri } from '../api/auth.api';
 import { getInventorySites } from '../api/inventory.api';
 import { enrichVersions, getVersionedFiles, checkScanChanges, type VersionedFilesResponse } from '../api/versions.api';
 import type { Scan, SiteRollup } from '../types';
@@ -630,7 +631,7 @@ export default function SettingsPage(): React.ReactElement {
                   <input
                     style={{ ...ss.input, fontFamily: 'monospace' }}
                     aria-label="Redirect URI"
-                    value={`${window.location.origin}/api/session/oauth/callback`}
+                    value={getOAuthRedirectUri()}
                     readOnly
                   />
                 </Field>

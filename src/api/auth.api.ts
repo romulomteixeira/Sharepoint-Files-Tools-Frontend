@@ -7,7 +7,15 @@
 
 import type { BrandingResponse } from '../types';
 
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+const BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '').replace(/\/+$/, '');
+
+export function getOAuthStartUrl(): string {
+  return `${BASE}/api/session/oauth/start`;
+}
+
+export function getOAuthRedirectUri(): string {
+  return `${BASE}/api/session/oauth/callback`;
+}
 
 // ─── Tipos de resposta ────────────────────────────────────────────────────────
 

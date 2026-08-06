@@ -3,7 +3,7 @@
  * Redesign: usa o design system (tokens.css) e os componentes base.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import { useJobStream } from '../hooks/useJobStream';
@@ -21,9 +21,19 @@ function fmtDate(iso?: string): string {
   return iso ? new Date(iso).toLocaleString('pt-BR') : '—';
 }
 
+function fmtDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '—';
+  const value = Math.round(seconds);
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const secs = value % 60;
+  return hours > 0 ? `${hours}h ${minutes}min ${secs}s` : minutes > 0 ? `${minutes}min ${secs}s` : `${secs}s`;
+}
+
 export default function JobStatusPage(): React.ReactElement {
   const { jobId } = useParams<{ jobId: string }>();
-  const { status, error, done } = useJobStream(jobId ?? null);
+  const [refreshSeconds, setRefreshSeconds] = useState(5);
+  const { status, error, done, transport } = useJobStream(jobId ?? null, { pollIntervalMs: refreshSeconds * 1000 });
 
   if (!jobId) {
     return <div style={{ display: 'grid', placeItems: 'center', padding: '4rem 1rem' }}><p>ID do job não informado.</p></div>;
@@ -40,6 +50,21 @@ export default function JobStatusPage(): React.ReactElement {
       </div>
 
       <PageHead title="Progresso do Job" sub={<span>ID: <span className="mono">{jobId}</span></span>} />
+
+      <Card>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <div className="small" style={{ fontWeight: 700 }}>Atualização do acompanhamento</div>
+            <div className="muted small">Transporte: {transport === 'sse' ? 'tempo real (SSE persistente)' : transport === 'polling' ? 'polling de contingência' : 'conectando'}</div>
+          </div>
+          <label className="row small" style={{ gap: 8 }}>
+            Atualizar a cada
+            <select aria-label="Intervalo de atualização" value={refreshSeconds} onChange={(event) => setRefreshSeconds(Number(event.target.value))}>
+              {[5, 10, 20, 30].map((seconds) => <option key={seconds} value={seconds}>{seconds} segundos</option>)}
+            </select>
+          </label>
+        </div>
+      </Card>
 
       {!status && !error && <p className="muted small">Conectando ao servidor…</p>}
       {error && <p style={{ color: 'var(--bad)' }}>{error}</p>}
@@ -75,6 +100,23 @@ export default function JobStatusPage(): React.ReactElement {
                 <span className="mono small" style={{ color: 'var(--bad)', textAlign: 'right' }}>{status.lastError}</span>
               </div>
             )}
+
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+              <div className="card" style={{ flex: '1 1 180px', padding: 12 }}>
+                <div className="small muted">Velocidade média</div>
+                <strong style={{ fontSize: 20 }}>{status.progress.itemsPerSecond ? `${status.progress.itemsPerSecond.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} itens/s` : 'Calculando…'}</strong>
+              </div>
+              <div className="card" style={{ flex: '1 1 180px', padding: 12 }}>
+                <div className="small muted">ETA estimado</div>
+                <strong style={{ fontSize: 20 }}>{done ? 'Concluído' : fmtDuration(status.progress.etaSeconds)}</strong>
+              </div>
+              {status.progress.cached !== undefined && status.progress.cached > 0 && (
+                <div className="card" style={{ flex: '1 1 180px', padding: 12 }}>
+                  <div className="small muted">Atendidos pelo cache</div>
+                  <strong style={{ fontSize: 20 }}>{status.progress.cached.toLocaleString('pt-BR')}</strong>
+                </div>
+              )}
+            </div>
 
             <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 12 }}>
               <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>

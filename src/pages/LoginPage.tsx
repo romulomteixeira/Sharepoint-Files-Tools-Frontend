@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getBranding,
+  getOAuthStartUrl,
   login as apiLogin,
   requestFirstAdmin,
   confirmFirstAdmin,
@@ -144,7 +145,7 @@ export default function LoginPage(): React.ReactElement {
   };
 
   const handleOAuth = () => {
-    window.location.href = '/api/session/oauth/start';
+    window.location.assign(getOAuthStartUrl());
   };
 
   /** Formulário: login normal */

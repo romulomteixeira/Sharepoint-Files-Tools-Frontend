@@ -441,7 +441,7 @@ export default function ScansPage(): React.ReactElement {
                     <td>
                       {(scan.status === 'running' || scan.status === 'pending') && (
                         <div className="row">
-                          <Link to="/" className="td-link small">Acompanhar</Link>
+                          <Link to={`/jobs/${scan.id}`} className="td-link small">Acompanhar</Link>
                           <button type="button" className="td-link small" onClick={() => handleCancelScan(scan.id)} disabled={cancellingScanId === scan.id} style={{ color: 'var(--bad)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                             {cancellingScanId === scan.id ? 'Cancelando...' : 'Cancelar'}
                           </button>
